@@ -12,8 +12,18 @@ const PORT = process.env.PORT || 3000;
 connectDB();
 
 // Middleware
-app.use(cors());
 app.use(express.json());
+
+// CORS setup
+app.use(cors({
+  origin: [
+    'http://localhost:5173',
+    'http://localhost:3000',
+    'https://makjuz-payroll.vercel.app'  // your deployed frontend
+  ],
+  methods: ['GET', 'POST', 'PUT', 'DELETE', 'PATCH'],
+  credentials: true
+}));
 
 // Ensure uploads directory exists
 const uploadsDir = path.join(__dirname, 'uploads');
@@ -21,11 +31,17 @@ if (!fs.existsSync(uploadsDir)) {
   fs.mkdirSync(uploadsDir, { recursive: true });
 }
 
+// Make uploads folder publicly accessible
+app.use('/uploads', express.static(uploadsDir));
+
 // Create templates directory if it doesn't exist
 const templatesDir = path.join(__dirname, 'templates');
 if (!fs.existsSync(templatesDir)) {
   fs.mkdirSync(templatesDir, { recursive: true });
 }
+
+// Publicly serve templates (optional)
+app.use('/templates', express.static(templatesDir));
 
 // Routes
 const userRoutes = require('./routes/userRoutes');
@@ -56,13 +72,13 @@ app.get('/', (req, res) => {
 // Error handling middleware
 app.use((err, req, res, next) => {
   console.error('Error:', err.stack);
-  res.status(500).json({ 
+  res.status(500).json({
     message: 'Something went wrong!',
     error: process.env.NODE_ENV === 'development' ? err.message : undefined
   });
 });
 
-// Start server
+// Start Server
 app.listen(PORT, () => {
-  console.log(`Server is running on http://localhost:${PORT}`);
+  console.log(`Server running at http://localhost:${PORT}`);
 });
