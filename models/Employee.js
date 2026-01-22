@@ -48,7 +48,13 @@ const employeeSchema = new mongoose.Schema({
   },
   emergency_contact_number: {
     type: String,
-    required: true
+    required: true,
+    validate: {
+      validator: function(v) {
+        return v !== this.contact_number;
+      },
+      message: 'Emergency contact number cannot be the same as contact number'
+    }
   },
   qualification: {
     type: String,
@@ -67,7 +73,13 @@ const employeeSchema = new mongoose.Schema({
   },
   pan_number: {
     type: String,
-    required: true
+    required: true,
+    validate: {
+      validator: function(v) {
+        return /^[A-Z]{5}[0-9]{4}[A-Z]{1}$/.test(v);
+      },
+      message: 'Invalid PAN number format'
+    }
   },
   bank_name: {
     type: String,
@@ -79,7 +91,13 @@ const employeeSchema = new mongoose.Schema({
   },
   ifsc_code: {
     type: String,
-    required: true
+    required: true,
+    validate: {
+      validator: function(v) {
+        return /^[A-Z]{4}0[A-Z0-9]{6}$/.test(v);
+      },
+      message: 'Invalid IFSC code format'
+    }
   },
   branch: {
     type: String,
@@ -157,7 +175,7 @@ const employeeSchema = new mongoose.Schema({
   },
   salaryType: {
     type: String,
-    enum: ['Wages', 'Salary'],
+    enum: ['Wages', 'Salary', 'Stipend'],
     required: true
   },
   employeeCategory: {
