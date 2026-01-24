@@ -2,56 +2,247 @@ const xlsx = require('xlsx');
 const path = require('path');
 const fs = require('fs');
 const Employee = require('../models/Employee');
+const Company = require('../models/Company');
 const mongoose = require('mongoose');
 
+// Helper to find value from row using multiple possible key names (case/symbol insensitive)
+const getValue = (row, aliases, defaultValue = 0) => {
+  if (!row || typeof row !== 'object') return defaultValue;
+
+  const rowKeys = Object.keys(row);
+  const normalizedRowKeys = rowKeys.reduce((acc, key) => {
+    // "Present Days" -> "presentdays"
+    acc[key.toLowerCase().replace(/[^a-z0-9]/g, '')] = key;
+    return acc;
+  }, {});
+
+  for (const alias of aliases) {
+    const cleanAlias = alias.toLowerCase().replace(/[^a-z0-9]/g, '');
+    if (normalizedRowKeys[cleanAlias]) {
+      const originalKey = normalizedRowKeys[cleanAlias];
+      if (row[originalKey] !== undefined && row[originalKey] !== null && row[originalKey] !== '') {
+        return row[originalKey];
+      }
+    }
+  }
+
+  return defaultValue;
+};
+
 // Process the uploaded excel file
-exports.processPayrunExcel = async (filePath, month, year) => {
+exports.processPayrunExcel = async (filePath, month, year, companyId, columnMapping = {}) => {
   try {
     const workbook = xlsx.readFile(filePath);
     const sheetName = workbook.SheetNames[0];
     const worksheet = workbook.Sheets[sheetName];
-    const data = xlsx.utils.sheet_to_json(worksheet);
+
+    // Read as array of arrays to find the header row
+    const rawData = xlsx.utils.sheet_to_json(worksheet, { header: 1, defval: "" });
 
     // Validation results
     const results = {
       success: [],
       errors: [],
-      totalProcessed: data.length
+      totalProcessed: 0
     };
 
-    // Process each row from the Excel file
-    for (const row of data) {
+    if (!rawData || rawData.length === 0) {
+      throw new Error("Excel sheet is empty");
+    }
+
+    // Smart Header Detection
+    let headerRowIndex = -1;
+    let headerMap = {}; // Map of normalized column name -> index
+
+    const requiredKeywords = ['id', 'emp', 'code', 'no'];
+
+    for (let i = 0; i < Math.min(rawData.length, 20); i++) { // Scan first 20 rows
+      const row = rawData[i];
+      if (!Array.isArray(row)) continue;
+
+      const rowStr = row.join(' ').toLowerCase();
+      // Check if row has keywords resembling an ID column
+      const hasIdColumn = row.some(cell => {
+        if (!cell) return false;
+        const val = cell.toString().toLowerCase().replace(/[^a-z0-9]/g, '');
+        return ['id', 'empid', 'employeeid', 'empno', 'code', 'empcode', 'srno'].includes(val);
+      });
+
+      if (hasIdColumn) {
+        headerRowIndex = i;
+        // Build header map
+        row.forEach((cell, index) => {
+          if (cell) {
+            const normalized = cell.toString().toLowerCase().replace(/[^a-z0-9]/g, '');
+            headerMap[normalized] = index;
+            // Also store exact text for loose matching if needed
+            headerMap[cell.toString()] = index;
+          }
+        });
+        console.log(`DEBUG: Found header at row ${i}:`, Object.keys(headerMap));
+        break;
+      }
+    }
+
+    if (headerRowIndex === -1) {
+      // Fallback: Assume row 0 is header if we couldn't find one
+      console.log("DEBUG: Could not detect header row, defaulting to row 0");
+      headerRowIndex = 0;
+      if (rawData[0]) {
+        rawData[0].forEach((cell, index) => {
+          if (cell) {
+            const normalized = cell.toString().toLowerCase().replace(/[^a-z0-9]/g, '');
+            headerMap[normalized] = index;
+          }
+        });
+      }
+    }
+
+    // Process data rows
+    const dataRows = rawData.slice(headerRowIndex + 1);
+    results.totalProcessed = dataRows.length;
+
+    // Helper to get value
+    const getValueByIndex = (rowArray, aliases, key, defaultValue = 0) => {
+      if (!rowArray) return defaultValue;
+
+      // 1. Check strict mapping if provided
+      if (key && columnMapping && columnMapping[key]) {
+        const mappedHeader = columnMapping[key].toString().toLowerCase().replace(/[^a-z0-9]/g, '');
+        // Try strict map first
+        let idx = headerMap[mappedHeader];
+        // If not found in normalized map, maybe user typed exact header? 
+        // We stored normalized keys in headerMap, so we normalize user input.
+
+        if (idx !== undefined) {
+          const val = rowArray[idx];
+          if (val !== undefined && val !== null && val !== '') return val;
+        }
+      }
+
+      // 2. Fallback to Alias Search
+      if (Array.isArray(aliases)) {
+        for (const alias of aliases) {
+          const cleanAlias = alias.toLowerCase().replace(/[^a-z0-9]/g, '');
+          let colIndex = headerMap[cleanAlias];
+
+          if (colIndex !== undefined) {
+            const val = rowArray[colIndex];
+            if (val !== undefined && val !== null && val !== '') return val;
+          }
+        }
+      }
+      return defaultValue;
+    };
+
+    // Helper to reconstruct row object for frontend
+    const reconstructRowObject = (rowArray) => {
+      const obj = {};
+      if (headerRowIndex > -1 && rawData[headerRowIndex]) {
+        rawData[headerRowIndex].forEach((headerName, idx) => {
+          if (headerName && idx < rowArray.length) {
+            obj[headerName] = rowArray[idx];
+          }
+        });
+      } else {
+        // Fallback if no header row found (should cover index 0 case)
+        rowArray.forEach((val, idx) => {
+          obj[`Column${idx}`] = val;
+        });
+      }
+
+      // Ensure standard keys exist for frontend validation/display
+      const standardId = getValueByIndex(rowArray, ['ID', 'Employee ID', 'Emp ID', 'EMP_ID', 'Emp No', 'Employee No', 'Code'], null);
+      if (standardId) obj['ID'] = standardId;
+
+      const standardName = getValueByIndex(rowArray, ['TRAINEE NAME', 'Name', 'Employee Name', 'Full Name'], null);
+      if (standardName) obj['TRAINEE NAME'] = standardName;
+
+      return obj;
+    };
+
+    for (const row of dataRows) {
+      // Skip empty rows
+      if (!row || row.length === 0 || row.every(cell => !cell)) continue;
+
+      // Reconstruct object for frontend display
+      const rowObject = reconstructRowObject(row);
+
       try {
         // Validate required fields
-        if (!row.ID) {
-          results.errors.push({
-            row: row,
-            error: 'Missing employee ID',
-          });
+        const rawId = getValueByIndex(row, ['ID', 'Employee ID', 'Emp ID', 'EMP_ID', 'Emp No', 'Employee No', 'Code'], null);
+
+        if (!rawId) {
+          // Only log error if the row looks like it should have data
+          const hasName = getValueByIndex(row, ['Name', 'Trainee Name', 'Employee Name'], null);
+          if (hasName) {
+            results.errors.push({
+              row: rowObject,
+              error: 'Missing employee ID',
+            });
+          }
           continue;
         }
 
-        // Clean up the employee ID by removing spaces and standardizing format
-        let employeeId = row.ID.toString().trim();
-        
+        // Clean up the employee ID
+        let employeeId = rawId.toString().trim();
+
         // Find the employee in the database - try multiple formats
         let employee = await Employee.findOne({ emp_id_no: employeeId });
-        
-        // If not found, try removing dashes
+
+        // If not found, try removing all non-alphanumeric characters (dashes, spaces, etc.)
         if (!employee) {
-          const idWithoutDash = employeeId.replace(/-/g, '');
-          employee = await Employee.findOne({ emp_id_no: idWithoutDash });
+          const cleanId = employeeId.replace(/[^a-zA-Z0-9]/g, '');
+          if (cleanId !== employeeId) {
+            employee = await Employee.findOne({ emp_id_no: cleanId });
+          }
         }
-        
-        // If still not found, try adding LIV prefix if not already there
-        if (!employee && !employeeId.toUpperCase().startsWith('LIV')) {
-          employee = await Employee.findOne({ emp_id_no: `LIV${employeeId}` });
-        }
-        
+
         // If still not found, try case-insensitive search
         if (!employee) {
           const empIdRegex = new RegExp(`^${employeeId}$`, 'i');
           employee = await Employee.findOne({ emp_id_no: empIdRegex });
+        }
+
+        // If still not found, try adding LIV prefix if not already there (legacy support)
+        if (!employee && !employeeId.toUpperCase().startsWith('LIV')) {
+          employee = await Employee.findOne({ emp_id_no: `LIV${employeeId}` });
+        }
+
+        // Deep Search: Match based on numeric value (handles LSPL00157 -> LIV157, 00123 -> 123, etc.)
+        if (!employee) {
+          const inputDigits = employeeId.replace(/\D/g, ''); // Extract all digits "00157"
+          if (inputDigits.length > 0) {
+            const inputNumVal = parseInt(inputDigits, 10); // 157
+
+            // Find candidates that end with numbers
+            // We perform a broad regex search first to get potential matches
+            const candidates = await Employee.find({
+              emp_id_no: { $regex: /[0-9]+$/ }
+            });
+
+            // Create a more robust matching function
+            const isMatch = (dbId) => {
+              const dbDigits = dbId.replace(/\D/g, '');
+              if (!dbDigits) return false;
+              return parseInt(dbDigits, 10) === inputNumVal;
+            };
+
+            const matches = candidates.filter(c => isMatch(c.emp_id_no));
+
+            if (matches.length === 1) {
+              employee = matches[0];
+              console.log(`DEBUG: Numeric matched ${employeeId} (${inputNumVal}) to ${employee.emp_id_no}`);
+            } else if (matches.length > 1) {
+              // If multiple matches, prefer LIV prefix
+              const livMatch = matches.find(c => c.emp_id_no.toUpperCase().startsWith('LIV'));
+              // If no LIV match, try finding one that ends with exact string match (e.g. 00157)
+              const exactSuffixMatch = matches.find(c => c.emp_id_no.endsWith(inputDigits));
+
+              employee = livMatch || exactSuffixMatch || matches[0];
+              console.log(`DEBUG: Numeric matched ${employeeId} (${inputNumVal}) to ${employee.emp_id_no} (from ${matches.length} candidates)`);
+            }
+          }
         }
 
         if (!employee) {
@@ -63,8 +254,8 @@ exports.processPayrunExcel = async (filePath, month, year) => {
           continue;
         }
 
-        // Calculate all the payrun fields
-        const calculatedPayrun = calculatePayrun(row, employee);
+        // Calculate payrun fields using the new index-based getter
+        const calculatedPayrun = calculatePayrunFromRowArray(row, employee, getValueByIndex);
 
         // Store the calculated payrun details in the database
         const key = `${month}_${year}`;
@@ -81,7 +272,7 @@ exports.processPayrunExcel = async (filePath, month, year) => {
       } catch (error) {
         console.error('Error processing row:', error);
         results.errors.push({
-          row: row,
+          row: rowObject,
           error: error.message
         });
       }
@@ -97,52 +288,55 @@ exports.processPayrunExcel = async (filePath, month, year) => {
   }
 };
 
-// Calculate payrun details from excel data
-const calculatePayrun = (row, employee) => {
-  // Extract values from the Excel row with proper parsing and defaults
-  const presentDays = parseFloat(row["PRESENT DAYS"] || 0);
-  const holidays = parseFloat(row["HOLIDAYS"] || 0);
-  const otHours = parseFloat(row["OT HOURS"] || 0);
-  const totalFixedDays = parseFloat(row["TOTAL FIXED DAYS"] || 0) || 24; // Default to 24 if not specified
+// Updated calculation function for Array rows
+const calculatePayrunFromRowArray = (row, employee, getValue) => {
+  // Extract values using flexible alias matching
+  const presentDays = parseFloat(getValue(row, ['PRESENT DAYS', 'Present', 'P Days', 'Days Present', 'PD', 'Actual Days', 'Paid Days', 'Days Worked', 'Attendance'], 'presentDays', 0));
+  const holidays = parseFloat(getValue(row, ['HOLIDAYS', 'Holiday', 'Leaves', 'Leave Days', 'H', 'HD', 'Week Off', 'WO', 'Off Days'], 'holidays', 0));
+  const otHours = parseFloat(getValue(row, ['OT HOURS', 'OT', 'Overtime', 'Overtime Hours', 'OT Hrs', 'Extra Hours'], 'otHours', 0));
+  const totalFixedDays = parseFloat(getValue(row, ['TOTAL FIXED DAYS', 'Fixed Days', 'Month Days', 'Days in Month', 'Total Days', 'Working Days'], 'totalFixedDays', 24));
   const totalPayableDays = presentDays + holidays;
-  
-  // Base values - either from employee record or excel data
-  const fixedStipend = parseFloat(row["FIXED STIPEND"] || employee.fixed_stipend || 0);
-  const specialAllowance = parseFloat(row["SPECIAL ALLOWANCE"] || 0);
-  
+
+  // Base values
+  const fixedStipend = parseFloat(getValue(row, ['FIXED STIPEND', 'Fixed Salary', 'Stipend', 'Basic', 'CTC', 'Gross Salary', 'Basic Salary', 'Rate', 'Salary'], 'fixedStipend', employee.fixed_stipend || 0));
+  const specialAllowance = parseFloat(getValue(row, ['SPECIAL ALLOWANCE', 'Active Allowance', 'Special', 'Other Allowance', 'Allowance', 'Spcl Allow'], 'specialAllowance', 0));
+
   // Calculate per day rates
-  const perDayStipend = fixedStipend / totalFixedDays;
-  const perDaySpecialAllowance = specialAllowance / totalFixedDays;
-  
+  const perDayStipend = totalFixedDays > 0 ? fixedStipend / totalFixedDays : 0;
+  const perDaySpecialAllowance = totalFixedDays > 0 ? specialAllowance / totalFixedDays : 0;
+
   // Calculate earnings
-  const earnedStipend = parseFloat(row["EARNED STIPEND"] || 0) || Math.round(perDayStipend * presentDays);
-  const earnedSpecialAllowance = parseFloat(row["EARNED SPECIAL ALLOWANCE"] || 0) || Math.round(perDaySpecialAllowance * presentDays);
-  const earningsOt = parseFloat(row["EARNINGS OF OT"] || 0);
-  const attendanceIncentive = parseFloat(row["ATTENDANCE INCENTIVE"] || 0);
-  const transport = parseFloat(row["TRANSPORT"] || 0);
-  
+  const earnedStipend = parseFloat(getValue(row, ['EARNED STIPEND', 'Earned Basic'], 'earnedStipend', Math.round(perDayStipend * presentDays)));
+  const earnedSpecialAllowance = parseFloat(getValue(row, ['EARNED SPECIAL ALLOWANCE', 'Earned Special'], 'earnedSpecialAllowance', Math.round(perDaySpecialAllowance * presentDays)));
+  const earningsOt = parseFloat(getValue(row, ['EARNINGS OF OT', 'OT Payment', 'OT Amount'], 'earningsOt', 0));
+  const attendanceIncentive = parseFloat(getValue(row, ['ATTENDANCE INCENTIVE', 'Incentive', 'Bonus'], 'attendanceIncentive', 0));
+  const transport = parseFloat(getValue(row, ['TRANSPORT', 'Travel', 'Conveyance'], 'transport', 0));
+
   // Calculate deductions
-  const canteen = parseFloat(row["CANTEEN"] || 0);
-  const managementFee = parseFloat(row["MANAGEMENT FEE"] || 0);
-  const insurance = parseFloat(row["INSURANCE"] || 0);
-  const lop = parseFloat(row["LOP"] || 0);
-  
+  const canteen = parseFloat(getValue(row, ['CANTEEN', 'Food', 'Mess'], 'canteen', 0));
+  const managementFee = parseFloat(getValue(row, ['MANAGEMENT FEE', 'Fee', 'Admin Fee'], 'managementFee', 0));
+  const insurance = parseFloat(getValue(row, ['INSURANCE', 'Medical', 'Health', 'Ins'], 'insurance', 0));
+  const lop = parseFloat(getValue(row, ['LOP', 'Loss of Pay'], 'lop', 0));
+
   // Calculate totals
-  const totalEarning = parseFloat(row["TOTAL EARNING"] || 0) || 
-    (earnedStipend + earnedSpecialAllowance + earningsOt + attendanceIncentive + transport);
-  const totalDeductions = parseFloat(row["TOTAL DEDUCTIONS"] || 0) || 
-    (canteen + managementFee + insurance + lop);
-  const netEarning = parseFloat(row["NET EARNING"] || 0) || 
-    (totalEarning - totalDeductions);
-  
-  // Calculate billing details
-  const billableTotal = parseFloat(row["BILLABLE TOTAL"] || 0) || netEarning + managementFee + insurance;
-  const gst = parseFloat(row["GST@ 18%"] || 0) || billableTotal * 0.18;
-  const grandTotal = parseFloat(row["GRAND TOTAL"] || 0) || billableTotal + gst;
-  const dbt = parseFloat(row["DBT"] || 0) || netEarning;
-  const finalNetpay = parseFloat(row["final netpay"] || 0) || dbt || netEarning;
-  const remarks = row["Remarks"] || "";
-  const bankAccount = row["Bank Accout"] || employee.account_number || "";
+  const totalEarning = parseFloat(getValue(row, ['TOTAL EARNING', 'Gross Earning', 'Total Earnings'], 'totalEarning', earnedStipend + earnedSpecialAllowance + earningsOt + attendanceIncentive + transport));
+  const totalDeductions = parseFloat(getValue(row, ['TOTAL DEDUCTIONS', 'Total Deduction'], 'totalDeductions', canteen + managementFee + insurance + lop));
+
+  // Net earning calculation
+  const calculatedNet = totalEarning - totalDeductions;
+  const netEarning = parseFloat(getValue(row, ['NET EARNING', 'Net Salary', 'In Hand'], 'netEarning', calculatedNet));
+
+  // Billing details
+  const billableTotal = parseFloat(getValue(row, ['BILLABLE TOTAL', 'Total Billable'], 'billableTotal', netEarning + managementFee + insurance));
+  const gst = parseFloat(getValue(row, ['GST@ 18%', 'GST', 'Tax'], 'gst', billableTotal * 0.18));
+  const grandTotal = parseFloat(getValue(row, ['GRAND TOTAL', 'Total Invoice'], 'grandTotal', billableTotal + gst));
+  const dbt = parseFloat(getValue(row, ['DBT', 'Transfer Amount'], 'dbt', netEarning));
+  const finalNetpay = parseFloat(getValue(row, ['final netpay', 'Final Pay', 'Payment'], 'finalNetpay', dbt || netEarning));
+
+  // Non-numeric fields
+  const remarks = getValue(row, ['Remarks', 'Note', 'Comment'], 'remarks', "");
+  // For Bank Account, we default to employee's account number if not in sheet
+  const bankAccount = getValue(row, ['Bank Accout', 'Bank Account', 'Account Number', 'Acc No'], 'bankAccount', employee.account_number || "");
 
   // Return the calculated values
   return {
@@ -152,30 +346,30 @@ const calculatePayrun = (row, employee) => {
     otHours,
     totalFixedDays,
     totalPayableDays,
-    
+
     // Base values
     fixedStipend,
     specialAllowance,
-    
+
     // Earnings
     earnedStipend,
     earnedSpecialAllowance,
     earningsOt,
     attendanceIncentive,
     transport,
-    
+
     // Deductions
     managementFee,
     insurance,
     canteen,
     lop,
-    
+
     // Totals
     totalEarning,
     totalDeductions,
     netEarning,
     finalNetpay,
-    
+
     // Billing
     billableTotal,
     gst,
@@ -248,17 +442,17 @@ exports.generatePaysheet = async (companyId, month, year) => {
 
     // Create a workbook
     const workbook = xlsx.utils.book_new();
-    
+
     // Prepare data for the paysheet - include more employee details
     const paysheetData = employees.map((employee, index) => {
       const payrun = employee.payrun_details.get(key);
-      
+
       // Ensure payrun data exists and has values or use defaults
       if (!payrun) {
         console.error(`No payrun data for employee ${employee.name} (${employee.emp_id_no})`);
         return null; // Skip this employee
       }
-      
+
       return {
         'SR.NO': index + 1,
         'ID': employee.emp_id_no,
@@ -304,7 +498,7 @@ exports.generatePaysheet = async (companyId, month, year) => {
         'Aadhar Number': employee.aadhar_number || ''
       };
     }).filter(Boolean); // Remove null entries
-    
+
     // Define column widths for better readability
     const colWidths = [
       { wch: 6 },   // SR.NO
@@ -353,13 +547,13 @@ exports.generatePaysheet = async (companyId, month, year) => {
 
     // Create a worksheet with the data
     const worksheet = xlsx.utils.json_to_sheet(paysheetData);
-    
+
     // Apply column widths
     worksheet['!cols'] = colWidths;
-    
+
     // Add the worksheet to the workbook
     xlsx.utils.book_append_sheet(workbook, worksheet, 'Paysheet');
-    
+
     // Add company summary sheet
     try {
       const company = employees[0].company;
@@ -370,27 +564,27 @@ exports.generatePaysheet = async (companyId, month, year) => {
         'Total Employees': employees.length,
         'Generated On': new Date().toLocaleString()
       }];
-      
+
       const summaryWorksheet = xlsx.utils.json_to_sheet(summaryData);
       xlsx.utils.book_append_sheet(workbook, summaryWorksheet, 'Summary');
     } catch (error) {
       console.error('Error adding summary sheet:', error);
       // Continue without the summary sheet
     }
-    
+
     // Generate a unique filename
     const filename = `paysheet_${month}_${year}_${Date.now()}.xlsx`;
     const filePath = path.join(__dirname, '..', 'uploads', filename);
-    
+
     // Ensure the uploads directory exists
     const uploadsDir = path.join(__dirname, '..', 'uploads');
     if (!fs.existsSync(uploadsDir)) {
       fs.mkdirSync(uploadsDir, { recursive: true });
     }
-    
+
     // Write the workbook to a file
     xlsx.writeFile(workbook, filePath);
-    
+
     return {
       filename,
       path: filePath

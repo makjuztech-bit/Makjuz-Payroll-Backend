@@ -12,45 +12,36 @@ const employeeSchema = new mongoose.Schema({
   },
   date_of_joining: {
     type: String,
-    required: true
   },
   department: {
     type: String,
-    required: true
   },
   designation: {
     type: String,
-    required: true
   },
   gender: {
     type: String,
-    required: true
   },
   fixed_stipend: {
     type: Number,
-    required: true
   },
   father_name: {
     type: String,
-    required: true
   },
   permanent_address: {
     type: String,
-    required: true
   },
   communication_address: {
     type: String,
-    required: true
   },
   contact_number: {
     type: String,
-    required: true
   },
   emergency_contact_number: {
     type: String,
-    required: true,
     validate: {
-      validator: function(v) {
+      validator: function (v) {
+        if (!v) return true; // Allow empty
         return v !== this.contact_number;
       },
       message: 'Emergency contact number cannot be the same as contact number'
@@ -58,24 +49,21 @@ const employeeSchema = new mongoose.Schema({
   },
   qualification: {
     type: String,
-    required: true
   },
   qualification_trade: {
     type: String
   },
   blood_group: {
     type: String,
-    required: true
   },
   adhar_number: {
     type: String,
-    required: true
   },
   pan_number: {
     type: String,
-    required: true,
     validate: {
-      validator: function(v) {
+      validator: function (v) {
+        if (!v) return true; // Allow empty
         return /^[A-Z]{5}[0-9]{4}[A-Z]{1}$/.test(v);
       },
       message: 'Invalid PAN number format'
@@ -83,17 +71,15 @@ const employeeSchema = new mongoose.Schema({
   },
   bank_name: {
     type: String,
-    required: true
   },
   account_number: {
     type: String,
-    required: true
   },
   ifsc_code: {
     type: String,
-    required: true,
     validate: {
-      validator: function(v) {
+      validator: function (v) {
+        if (!v) return true; // Allow empty
         return /^[A-Z]{4}0[A-Z0-9]{6}$/.test(v);
       },
       message: 'Invalid IFSC code format'
@@ -101,7 +87,6 @@ const employeeSchema = new mongoose.Schema({
   },
   branch: {
     type: String,
-    required: true
   },
   photo: {
     type: String
@@ -125,7 +110,6 @@ const employeeSchema = new mongoose.Schema({
   },
   category: {
     type: String,
-    required: true
   },
   status: {
     type: String,
@@ -138,10 +122,13 @@ const employeeSchema = new mongoose.Schema({
       holidays: Number,
       otHours: Number,
       totalFixedDays: Number,
+      totalPayableDays: Number,
+      fixedStipend: Number,
       earnedStipend: Number,
       earningsOt: Number,
       earnedSpecialAllowance: Number,
       specialAllowance: Number,
+      attendanceIncentive: Number,
       transport: Number,
       managementFee: Number,
       insurance: Number,
@@ -149,17 +136,21 @@ const employeeSchema = new mongoose.Schema({
       lop: Number,
       totalEarning: Number,
       totalDeductions: Number,
+      netEarning: Number,
       finalNetpay: Number,
       billableTotal: Number,
       gst: Number,
-      grandTotal: Number
+      grandTotal: Number,
+      dbt: Number,
+      remarks: String,
+      bankAccount: String
     }
   },
   DOB: {
     type: Date,
-    required: true,
     validate: {
-      validator: function(v) {
+      validator: function (v) {
+        if (!v) return true; // Allow empty
         // Ensure employee is at least 18 years old
         const dob = new Date(v);
         const today = new Date();
@@ -176,12 +167,14 @@ const employeeSchema = new mongoose.Schema({
   salaryType: {
     type: String,
     enum: ['Wages', 'Salary', 'Stipend'],
-    required: true
   },
   employeeCategory: {
     type: String,
     enum: ['NAPS', 'NON-NAPS', 'NATS', 'NON-NATS'],
-    required: true
+  },
+  customFields: {
+    type: Map,
+    of: String
   }
 }, {
   timestamps: true

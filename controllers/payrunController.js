@@ -10,43 +10,30 @@ exports.uploadPayrunExcel = async (req, res) => {
       return res.status(400).json({ message: 'No file uploaded' });
     }
 
-    const { month, year, companyId } = req.body;
+    const { month, year, companyId, columnMapping } = req.body;
     if (!month || !year || !companyId) {
       return res.status(400).json({ message: 'Month, year, and company ID are required' });
     }
 
-    // Check if data already exists for this month and year
-    // try {
-    //   const existingData = await payrunService.getPayrunSummary(companyId, month, year);
-      
-    //   // If data exists and has employees, prevent duplicate import
-    //   if (existingData && existingData.totalEmployees > 0) {
-    //     // Delete the uploaded file
-    //     if (req.file.path && fs.existsSync(req.file.path)) {
-    //       fs.unlinkSync(req.file.path);
-    //     }
-        
-    //     return res.status(409).json({ 
-    //       message: `Payrun data already exists for ${month} ${year}. Please use a different month or year.`,
-    //       existingData
-    //     });
-    //   }
-    // } catch (error) {
-    //   // If error is not due to missing data, log it but continue
-    //   if (error.message !== 'No payrun data found for the selected month and year') {
-    //     console.warn('Error checking existing payrun data:', error);
-    //   }
-    //   // Continue with import - no existing data found
-    // }
+    let mapping = {};
+    if (columnMapping) {
+      try {
+        mapping = JSON.parse(columnMapping);
+      } catch (e) {
+        console.warn('Failed to parse columnMapping:', e);
+      }
+    }
+
+    // Check if data already exists logic removed/commented out previously
 
     const filePath = req.file.path;
 
-    const results = await payrunService.processPayrunExcel(filePath, month, year, companyId);
- 
+    const results = await payrunService.processPayrunExcel(filePath, month, year, companyId, mapping);
+
     res.status(200).json(results);
   } catch (error) {
     console.error('Error uploading payrun excel:', error);
-    
+
     // Clean up file if it exists
     if (req.file && req.file.path && fs.existsSync(req.file.path)) {
       try {
@@ -55,7 +42,7 @@ exports.uploadPayrunExcel = async (req, res) => {
         console.error('Error deleting temporary file:', unlinkError);
       }
     }
-    
+
     res.status(500).json({ message: 'Error processing the uploaded file', details: error.message });
   }
 };
@@ -64,7 +51,7 @@ exports.uploadPayrunExcel = async (req, res) => {
 exports.getPayrunSummary = async (req, res) => {
   try {
     const { companyId, month, year } = req.query;
-    
+
     if (!companyId || !month || !year) {
       return res.status(400).json({ message: 'Company ID, month and year are required' });
     }
@@ -81,16 +68,16 @@ exports.getPayrunSummary = async (req, res) => {
 exports.downloadPaysheet = async (req, res) => {
   try {
     const { companyId, month, year } = req.query;
-    
+
     if (!companyId || !month || !year) {
       return res.status(400).json({ message: 'Company ID, month and year are required' });
     }
-    
+
     // Validate month and year format
     if (!/^(January|February|March|April|May|June|July|August|September|October|November|December)$/.test(month)) {
       return res.status(400).json({ message: 'Invalid month format. Expected full month name (e.g., January)' });
     }
-    
+
     if (!/^\d{4}$/.test(year) || parseInt(year) < 2000 || parseInt(year) > 2100) {
       return res.status(400).json({ message: 'Invalid year format. Expected 4-digit year (e.g., 2023)' });
     }
@@ -104,7 +91,7 @@ exports.downloadPaysheet = async (req, res) => {
 
     console.log(`Generating paysheet for company ${company.name}, ${month} ${year}`);
     const paysheetInfo = await payrunService.generatePaysheet(companyId, month, year);
-    
+
     if (!paysheetInfo || !paysheetInfo.path) {
       throw new Error('Failed to generate paysheet file');
     }
@@ -112,14 +99,14 @@ exports.downloadPaysheet = async (req, res) => {
     // Set proper headers for Excel file
     res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
     res.setHeader('Content-Disposition', `attachment; filename=${paysheetInfo.filename}`);
-    
+
     // Get file stats
     const stats = fs.statSync(paysheetInfo.path);
     res.setHeader('Content-Length', stats.size);
-    
+
     // Create read stream
     const fileStream = fs.createReadStream(paysheetInfo.path);
-    
+
     // Handle stream errors
     fileStream.on('error', (err) => {
       console.error('Error streaming paysheet file:', err);
@@ -127,7 +114,7 @@ exports.downloadPaysheet = async (req, res) => {
         res.status(500).json({ message: 'Error sending file', details: err.message });
       }
     });
-    
+
     // Handle stream end
     fileStream.on('end', () => {
       console.log(`Paysheet downloaded successfully: ${paysheetInfo.filename}`);
@@ -138,14 +125,14 @@ exports.downloadPaysheet = async (req, res) => {
         console.error('Error deleting temporary file:', unlinkErr);
       }
     });
-    
+
     // Pipe the file to the response
     fileStream.pipe(res);
   } catch (error) {
     console.error('Error downloading paysheet:', error);
     if (!res.headersSent) {
-      res.status(500).json({ 
-        message: 'Error generating paysheet', 
+      res.status(500).json({
+        message: 'Error generating paysheet',
         details: error.message,
         stack: process.env.NODE_ENV === 'development' ? error.stack : undefined
       });
@@ -158,45 +145,32 @@ exports.getPayrunTemplate = async (req, res) => {
   try {
     // Create a workbook
     const workbook = xlsx.utils.book_new();
-    
+
     // Create template data with headers and example data
     const templateData = [
       {
-        'SR.NO': 1,
-        'ID': 'LEV001',
-        'TRAINEE NAME': 'JOHN DOE',
-        'PRESENT DAYS': 21.5,
-        'HOLIDAYS': 0,
+        'Sr-No-': 1,
+        'ID*': 'EMP1001',
+        'TRAINEE NAME-*': 'JOHN DOE',
+        'PRESENT DAYS*': 21.5,
+        'HOLIDAYS': 1,
         'OT HOURS': 0,
-        'EARNINGS OF OT': 0,
-        'TOTAL FIXED DAYS': 24,
-        'TOTAL PAYABLE DAYS': 21.5,
-        'FIXED STIPEND': 15000,
+        'TOTAL FIXED DAYS*': 24,
+        'FIXED STIPEND*': 15000,
         'SPECIAL ALLOWANCE': 1200,
-        'EARNED STIPEND': 13125,
-        'EARNED SPECIAL ALLOWANCE': 1050,
-        'ATTENDANCE INCENTIVE': 0,
         'TRANSPORT': 175,
         'CANTEEN': 600,
-        'TOTAL EARNING': 14350,
-        'TOTAL DEDUCTIONS': 600,
-        'NET EARNING': 13750,
         'MANAGEMENT FEE': 700,
         'INSURANCE': 150,
-        'BILLABLE TOTAL': 14600,
-        'GST@ 18%': 2628,
-        'GRAND TOTAL': 17228,
-        'DBT': 13750,
-        'final netpay': 13750,
         'LOP': 0,
         'Remarks': '',
-        'Bank Accout': '1234567890'
+        'Bank Account': '1234567890'
       }
     ];
-    
+
     // Create a worksheet with the template data
     const worksheet = xlsx.utils.json_to_sheet(templateData);
-    
+
     // Add column widths for better readability
     const colWidths = [
       { wch: 6 },   // SR.NO
@@ -205,48 +179,35 @@ exports.getPayrunTemplate = async (req, res) => {
       { wch: 12 },  // PRESENT DAYS
       { wch: 10 },  // HOLIDAYS
       { wch: 10 },  // OT HOURS
-      { wch: 15 },  // EARNINGS OF OT
       { wch: 15 },  // TOTAL FIXED DAYS
-      { wch: 18 },  // TOTAL PAYABLE DAYS
       { wch: 15 },  // FIXED STIPEND
       { wch: 18 },  // SPECIAL ALLOWANCE
-      { wch: 15 },  // EARNED STIPEND
-      { wch: 25 },  // EARNED SPECIAL ALLOWANCE
-      { wch: 20 },  // ATTENDANCE INCENTIVE
       { wch: 12 },  // TRANSPORT
       { wch: 10 },  // CANTEEN
-      { wch: 15 },  // TOTAL EARNING
-      { wch: 18 },  // TOTAL DEDUCTIONS
-      { wch: 13 },  // NET EARNING
       { wch: 15 },  // MANAGEMENT FEE
       { wch: 12 },  // INSURANCE
-      { wch: 15 },  // BILLABLE TOTAL
-      { wch: 10 },  // GST@ 18%
-      { wch: 13 },  // GRAND TOTAL
-      { wch: 8 },   // DBT
-      { wch: 13 },  // final netpay
       { wch: 8 },   // LOP
       { wch: 20 },  // Remarks
       { wch: 20 }   // Bank Accout
     ];
     worksheet['!cols'] = colWidths;
-    
+
     // Add the worksheet to the workbook
     xlsx.utils.book_append_sheet(workbook, worksheet, 'Payrun Template');
-    
+
     // Generate a temporary file
     const filename = `payrun_template_${Date.now()}.xlsx`;
     const filePath = path.join(__dirname, '..', 'uploads', filename);
-    
+
     // Ensure the uploads directory exists
     const uploadsDir = path.join(__dirname, '..', 'uploads');
     if (!fs.existsSync(uploadsDir)) {
       fs.mkdirSync(uploadsDir, { recursive: true });
     }
-    
+
     // Write the workbook to a file
     xlsx.writeFile(workbook, filePath);
-    
+
     // Send the file
     res.download(filePath, 'payrun_template.xlsx', (err) => {
       if (err) {
@@ -264,4 +225,4 @@ exports.getPayrunTemplate = async (req, res) => {
     console.error('Error generating payrun template:', error);
     res.status(500).json({ message: 'Error generating template', details: error.message });
   }
-}; 
+};

@@ -1,4 +1,5 @@
 const Employee = require('../models/Employee');
+const Company = require('../models/Company'); // Register Company model for populate
 const mongoose = require('mongoose');
 const { ObjectId } = mongoose.Types;
 
@@ -24,13 +25,13 @@ exports.findEmployeeByIdFormat = async (idFormat) => {
   try {
     // Try exact match
     let employee = await Employee.findOne({ emp_id_no: idFormat });
-    
+
     // Try case-insensitive match if not found
     if (!employee) {
       const regex = new RegExp(`^${idFormat}$`, 'i');
       employee = await Employee.findOne({ emp_id_no: regex });
     }
-    
+
     return employee;
   } catch (error) {
     console.error('Error in findEmployeeByIdFormat:', error);
@@ -64,7 +65,7 @@ exports.getEmployeeCount = async (companyId) => {
   try {
     console.log('employeeService.getEmployeeCount - Input companyId:', companyId);
     let query = {};
-    
+
     if (companyId) {
       try {
         query.company = new ObjectId(companyId);
@@ -74,7 +75,7 @@ exports.getEmployeeCount = async (companyId) => {
         throw err;
       }
     }
-    
+
     console.log('Final query:', JSON.stringify(query));
     const count = await Employee.countDocuments(query);
     console.log('Count result:', count);
@@ -100,7 +101,7 @@ exports.getEmployeePayrunDetails = async (id, month, year) => {
     if (employee.payrun_details && employee.payrun_details.get(key)) {
       const payrunDetails = employee.payrun_details.get(key);
       console.log('Found existing payrun details:', payrunDetails);
-      
+
       // Ensure all required fields are present
       const result = {
         ...employee.toObject(),
@@ -133,7 +134,7 @@ exports.getEmployeePayrunDetails = async (id, month, year) => {
         remarks: payrunDetails.remarks || "",
         bankAccount: payrunDetails.bankAccount || employee.account_number || ""
       };
-      
+
       console.log('Returning structured payrun data:', result);
       return result;
     }
@@ -150,11 +151,11 @@ exports.getEmployeePayrunDetails = async (id, month, year) => {
     // Base values (from requirement example)
     const fixedStipend = employee.fixed_stipend || 15146;
     const specialAllowance = 1273; // Special allowance from example
-    
+
     // Calculate per day rates
     const perDayStipend = fixedStipend / workingDays;
     const perDaySpecialAllowance = specialAllowance / workingDays;
-    
+
     // Calculate earnings
     const earnedStipend = Math.round(perDayStipend * presentDays);
     const earnedSpecialAllowance = Math.round(perDaySpecialAllowance * presentDays);
@@ -189,7 +190,7 @@ exports.getEmployeePayrunDetails = async (id, month, year) => {
       holidays,
       otHours,
       totalPayableDays: presentDays + holidays,
-      
+
       // Earnings
       fixedStipend,
       specialAllowance,
@@ -198,19 +199,19 @@ exports.getEmployeePayrunDetails = async (id, month, year) => {
       earningsOt,
       attendanceIncentive,
       transport,
-      
+
       // Deductions
       managementFee,
       insurance,
       canteen,
       lop,
-      
+
       // Totals
       totalEarning,
       totalDeductions,
       netEarning,
       finalNetpay,
-      
+
       // Billing
       billableTotal,
       gst,
@@ -232,7 +233,7 @@ exports.getEmployeePayrunDetails = async (id, month, year) => {
       ...payrunDetails,
       fixed_stipend: employee.fixed_stipend // Make sure the snake_case version is included for compatibility
     };
-    
+
     console.log('Returning newly calculated payrun data:', result);
     return result;
   } catch (error) {
@@ -249,7 +250,7 @@ exports.updatePayrunDetails = async (id, month, year, payrunDetails) => {
 
     const key = `payrun_details.${month}_${year}`;
     const update = { $set: { [key]: payrunDetails } };
-    
+
     const updatedEmployee = await Employee.findByIdAndUpdate(
       id,
       update,

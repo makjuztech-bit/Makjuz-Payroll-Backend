@@ -32,8 +32,8 @@ exports.createEmployee = async (req, res) => {
   try {
     // Convert camelCase to snake_case for MongoDB, but keep schema field names as-is
     const employeeData = {
-      emp_id_no: req.body.empIdNo,
-      name: req.body.name,
+      emp_id_no: req.body.empIdNo || `TEMP-${Date.now()}-${Math.floor(Math.random() * 1000)}`,
+      name: req.body.name || 'Unknown Employee',
       date_of_joining: req.body.dateOfJoining,
       department: req.body.department,
       designation: req.body.designation,
@@ -78,7 +78,7 @@ exports.createEmployee = async (req, res) => {
     };
 
     const newEmployee = await employeeService.createEmployee(employeeData);
-    
+
     // Return with camelCase field names for frontend
     res.status(201).json({
       id: newEmployee._id,
@@ -130,9 +130,9 @@ exports.createEmployee = async (req, res) => {
       // MongoDB duplicate key error
       return res.status(400).json({ message: 'Employee ID already exists' });
     }
-    res.status(500).json({ 
+    res.status(500).json({
       message: 'Server Error',
-      details: error.message 
+      details: error.message
     });
   }
 };
@@ -157,6 +157,23 @@ exports.deleteEmployee = async (req, res) => {
     res.status(204).send();
   } catch (error) {
     console.error('Error deleting employee:', error);
+    res.status(500).json({ message: 'Server Error' });
+  }
+};
+
+// Delete ALL employees (Danger Zone)
+exports.deleteAllEmployees = async (req, res) => {
+  try {
+    const { companyId } = req.query;
+    let query = {};
+    if (companyId) {
+      query.company = new require('mongoose').Types.ObjectId(companyId);
+    }
+
+    await require('../models/Employee').deleteMany(query);
+    res.status(200).json({ message: 'All employees deleted successfully' });
+  } catch (error) {
+    console.error('Error deleting all employees:', error);
     res.status(500).json({ message: 'Server Error' });
   }
 };
@@ -192,11 +209,11 @@ exports.getEmployeePayrunDetails = async (req, res) => {
     const { id } = req.params;
     const { month, year } = req.query;
     const payrunDetails = await employeeService.getEmployeePayrunDetails(id, month, year);
-    
+
     if (!payrunDetails) {
       return res.status(404).json({ message: 'Employee not found' });
     }
-    
+
     res.status(200).json(payrunDetails);
   } catch (error) {
     console.error('Error fetching employee payrun details:', error);
@@ -210,11 +227,11 @@ exports.updatePayrunDetails = async (req, res) => {
     const { id } = req.params;
     const { month, year } = req.query;
     const payrunDetails = await employeeService.updatePayrunDetails(id, month, year, req.body);
-    
+
     if (!payrunDetails) {
       return res.status(404).json({ message: 'Employee not found' });
     }
-    
+
     res.status(200).json(payrunDetails);
   } catch (error) {
     console.error('Error updating employee payrun details:', error);
@@ -226,14 +243,14 @@ exports.updatePayrunDetails = async (req, res) => {
 exports.findEmployeeById = async (req, res) => {
   try {
     const { id } = req.query;
-    
+
     if (!id) {
       return res.status(400).json({ message: 'Employee ID is required' });
     }
-    
+
     // Clean the ID
     const cleanId = id.toString().trim();
-    
+
     // Try different formats
     const formats = [
       cleanId,
@@ -242,7 +259,7 @@ exports.findEmployeeById = async (req, res) => {
       cleanId.toLowerCase(),
       cleanId.toUpperCase()
     ];
-    
+
     const results = await Promise.all(
       formats.map(async (format) => {
         const employee = await employeeService.findEmployeeByIdFormat(format);
@@ -253,9 +270,9 @@ exports.findEmployeeById = async (req, res) => {
         };
       })
     );
-    
+
     const foundEmployee = results.find(r => r.found);
-    
+
     if (foundEmployee) {
       res.status(200).json({
         message: `Employee found with format: ${foundEmployee.format}`,
@@ -263,7 +280,7 @@ exports.findEmployeeById = async (req, res) => {
         allFormats: results.map(r => ({ format: r.format, found: r.found }))
       });
     } else {
-      res.status(404).json({ 
+      res.status(404).json({
         message: 'Employee not found with any format',
         formatsChecked: results.map(r => r.format)
       });
@@ -279,18 +296,18 @@ exports.getEmployeePayslip = async (req, res) => {
   try {
     const { id } = req.params;
     const { month, year } = req.query;
-    
+
     if (!month || !year) {
       return res.status(400).json({ message: 'Month and year are required' });
     }
-    
+
     // Get employee data with payrun details
     const employeeWithPayrun = await employeeService.getEmployeePayrunDetails(id, month, year);
-    
+
     if (!employeeWithPayrun) {
       return res.status(404).json({ message: 'Employee not found' });
     }
-    
+
     // Format the data for the payslip response
     const payslipData = {
       // Employee details
@@ -301,18 +318,18 @@ exports.getEmployeePayslip = async (req, res) => {
       designation: employeeWithPayrun.designation,
       location: employeeWithPayrun.communication_address,
       accountNumber: employeeWithPayrun.account_number,
-      
+
       // Pay period
       month,
       year,
-      
+
       // Attendance details
       totalFixedDays: employeeWithPayrun.totalFixedDays,
       presentDays: employeeWithPayrun.presentDays,
       holidays: employeeWithPayrun.holidays,
       otHours: employeeWithPayrun.otHours,
       totalPayableDays: employeeWithPayrun.totalPayableDays,
-      
+
       // Earnings
       fixedStipend: employeeWithPayrun.fixedStipend,
       specialAllowance: employeeWithPayrun.specialAllowance,
@@ -321,19 +338,19 @@ exports.getEmployeePayslip = async (req, res) => {
       earningsOt: employeeWithPayrun.earningsOt,
       attendanceIncentive: employeeWithPayrun.attendanceIncentive,
       transport: employeeWithPayrun.transport,
-      
+
       // Deductions
       managementFee: employeeWithPayrun.managementFee,
       insurance: employeeWithPayrun.insurance,
       canteen: employeeWithPayrun.canteen,
       lop: employeeWithPayrun.lop,
-      
+
       // Totals
       totalEarning: employeeWithPayrun.totalEarning,
       totalDeductions: employeeWithPayrun.totalDeductions,
       finalNetpay: employeeWithPayrun.finalNetpay,
       netEarning: employeeWithPayrun.netEarning || employeeWithPayrun.finalNetpay,
-      
+
       // Billing
       billableTotal: employeeWithPayrun.billableTotal,
       gst: employeeWithPayrun.gst,
@@ -342,7 +359,7 @@ exports.getEmployeePayslip = async (req, res) => {
       remarks: employeeWithPayrun.remarks,
       bankAccount: employeeWithPayrun.bankAccount
     };
-    
+
     res.status(200).json(payslipData);
   } catch (error) {
     console.error('Error generating employee payslip:', error);

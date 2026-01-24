@@ -14,6 +14,7 @@ router.get('/:id/payslip', employeeController.getEmployeePayslip); // Route for 
 router.put('/:id/payrun', employeeController.updatePayrunDetails); // Add PUT endpoint for updating payrun details
 router.post('/', employeeController.createEmployee);
 router.put('/:id', employeeController.updateEmployee);
+router.delete('/delete-all', employeeController.deleteAllEmployees); // Delete all employees
 router.delete('/:id', employeeController.deleteEmployee);
 
 module.exports = router;

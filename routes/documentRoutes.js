@@ -6,13 +6,16 @@ const auth = require('../middleware/auth');
 // Protect all routes with authentication
 router.use(auth);
 
+// Batch get documents (POST to send array of IDs)
+router.post('/batch', documentController.getDocumentsBatch);
+
 // Upload a document for an employee
 router.post('/:employeeId', documentController.uploadDocument);
 
-// Get document by employee ID
-router.get('/:employeeId', documentController.getDocument);
+// Get documents by employee ID
+router.get('/:employeeId', documentController.getDocuments);
 
-// Delete document by employee ID
-router.delete('/:employeeId', documentController.deleteDocument);
+// Delete document by ID
+router.delete('/:id', documentController.deleteDocument);
 
 module.exports = router;
