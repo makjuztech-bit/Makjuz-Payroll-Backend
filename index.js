@@ -71,7 +71,7 @@ app.use('/api/ai', aiRoutes);
 
 // Serve static files from the React frontend app
 if (process.env.NODE_ENV === 'production') {
-  const frontendBuildPath = path.join(__dirname, '..', 'Makjuz-payroll', 'dist');
+  const frontendBuildPath = path.join(__dirname, 'public');
   app.use(express.static(frontendBuildPath));
 
   // Any route that doesn't match an API route or static file should serve the frontend index.html
