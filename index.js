@@ -15,6 +15,9 @@ const { sanitizeInput } = require('./middleware/sanitization');
 const app = express();
 const PORT = process.env.PORT || 3000;
 
+// Required for Render/Proxies to identify client IPs for rate limiting
+app.set('trust proxy', 1);
+
 // Connect to MongoDB
 connectDB();
 
