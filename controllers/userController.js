@@ -12,7 +12,7 @@ const NODE_ENV = process.env.NODE_ENV || 'development';
 const getCookieOptions = (maxAge) => ({
   httpOnly: true,
   secure: NODE_ENV === 'production',
-  sameSite: 'strict',
+  sameSite: NODE_ENV === 'production' ? 'none' : 'lax', // Use 'none' for cross-domain cookies in production
   maxAge,
   path: '/'
 });
@@ -26,19 +26,29 @@ exports.register = async (req, res) => {
     }
 
     // Check if user already exists
-    const existingUser = await User.findOne({ $or: [{ username }, { email }] });
+    const existingUser = await User.findOne({ $or: [{ username: username.trim() }, { email: email.toLowerCase().trim() }] });
     if (existingUser) {
       return res.status(400).json({ message: 'Username or email already exists' });
     }
 
-    // Hash password with Argon2
-    const hashedPassword = await argon2.hash(password);
+    // Hash password with Argon2 (with safety catch)
+    let hashedPassword;
+    try {
+      hashedPassword = await argon2.hash(password, {
+        type: argon2.argon2id,
+        memoryCost: 2 ** 14, // Lower memory cost for limited environments like Render free tier
+        timeCost: 2
+      });
+    } catch (hashError) {
+      logger.error('Encryption failed (Argon2):', hashError);
+      return res.status(500).json({ message: 'Security module initialization failed' });
+    }
 
     // Create user
     const user = new User({
-      username: sanitizeString(username),
+      username: sanitizeString(username.trim()),
       password: hashedPassword,
-      email: email.toLowerCase()
+      email: email.toLowerCase().trim()
     });
 
     await user.save();
@@ -65,8 +75,12 @@ exports.register = async (req, res) => {
       user: user.toJSON()
     });
   } catch (error) {
-    logger.error('Registration error:', error);
-    res.status(500).json({ message: 'Error registering user' });
+    logger.error('Registration Exception:', {
+      message: error.message,
+      stack: error.stack,
+      body: { ...req.body, password: '***' }
+    });
+    res.status(500).json({ message: 'Error registering user', details: error.message });
   }
 };
 
@@ -74,8 +88,12 @@ exports.login = async (req, res) => {
   try {
     const { username, password } = req.body;
 
+    if (!username || !password) {
+      return res.status(400).json({ message: 'Username and password are required' });
+    }
+
     // Find user and include password
-    const user = await User.findOne({ username }).select('+password');
+    const user = await User.findOne({ username: username.trim() }).select('+password');
     if (!user) {
       return res.status(401).json({ message: 'Invalid credentials' });
     }
@@ -83,7 +101,7 @@ exports.login = async (req, res) => {
     // Check if locked
     if (user.isLocked) {
       return res.status(423).json({
-        message: 'Account is locked. Try again later.',
+        message: 'Account is locked due to too many failed attempts. Try again in 2 hours.',
         lockUntil: user.lockUntil
       });
     }
@@ -120,7 +138,7 @@ exports.login = async (req, res) => {
       user: user.toJSON()
     });
   } catch (error) {
-    logger.error('Login error:', error);
+    logger.error('Login Exception:', error);
     res.status(500).json({ message: 'Error logging in' });
   }
 };

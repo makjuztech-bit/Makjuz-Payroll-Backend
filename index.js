@@ -18,54 +18,68 @@ const PORT = process.env.PORT || 3000;
 // Connect to MongoDB
 connectDB();
 
-// 1. Security Headers
+// 1. Security Headers (Relaxed for development/local fonts)
 app.use(helmet({
   contentSecurityPolicy: {
     directives: {
       defaultSrc: ["'self'"],
-      styleSrc: ["'self'", "'unsafe-inline'", "https://fonts.googleapis.com"],
+      styleSrc: ["'self'", "'unsafe-inline'", "https://fonts.googleapis.com", "https://at.alicdn.com"],
       imgSrc: ["'self'", "data:", "https:"],
-      connectSrc: ["'self'", process.env.FRONTEND_URL || 'http://localhost:5173']
+      connectSrc: ["'self'", "https://makjuz-payrol.vercel.app", "http://localhost:5173", "https://makjuz-payroll-backend.onrender.com"]
     }
-  }
+  },
+  crossOriginResourcePolicy: { policy: "cross-origin" }
 }));
 
-// 2. CORS setup
-const allowedOrigins = process.env.ALLOWED_ORIGINS
-  ? process.env.ALLOWED_ORIGINS.split(',')
-  : ['http://localhost:5173', 'http://localhost:3000'];
+// 2. Optimized CORS Configuration
+const allowedOrigins = [
+  'https://makjuz-payrol.vercel.app',
+  'http://localhost:5173',
+  'http://localhost:3000'
+];
 
 app.use(cors({
   origin: (origin, callback) => {
-    if (!origin || allowedOrigins.includes(origin)) {
-      callback(null, true);
-    } else {
-      callback(new Error('Not allowed by CORS'));
+    // Allow requests with no origin (like mobile apps or curl)
+    if (!origin) return callback(null, true);
+    if (allowedOrigins.indexOf(origin) === -1) {
+      const msg = 'The CORS policy for this site does not allow access from the specified Origin.';
+      return callback(new Error(msg), false);
     }
+    return callback(null, true);
   },
   methods: ['GET', 'POST', 'PUT', 'DELETE', 'PATCH', 'OPTIONS'],
-  credentials: true
+  credentials: true,
+  exposedHeaders: ['set-cookie']
 }));
 
-// 3. Payload Limits & Parsing
-app.use(express.json({ limit: '1mb' }));
-app.use(express.urlencoded({ limit: '1mb', extended: true }));
+// 3. Payload Parsing & Cookies
+app.use(express.json({ limit: '50mb' }));
+app.use(express.urlencoded({ limit: '50mb', extended: true }));
 app.use(cookieParser());
 
 // 4. Sanitization
 app.use(mongoSanitize());
 app.use(sanitizeInput);
 
-// 5. Rate Limiting
+// 5. Rate Limiting (Applied to API only)
 app.use('/api/', speedLimiter);
 app.use('/api/', apiLimiter);
 
-// Ensure uploads directory exists
+// Ensure essential directories exist
 const uploadsDir = path.join(__dirname, 'uploads');
-if (!fs.existsSync(uploadsDir)) {
-  fs.mkdirSync(uploadsDir, { recursive: true });
-}
+const templatesDir = path.join(__dirname, 'templates');
+const logsDir = path.join(__dirname, 'logs');
+
+[uploadsDir, templatesDir, logsDir].forEach(dir => {
+  if (!fs.existsSync(dir)) {
+    fs.mkdirSync(dir, { recursive: true });
+  }
+});
+
+// Static Folders
 app.use('/uploads', express.static(uploadsDir));
+app.use('/templates', express.static(templatesDir));
 
 // Routes
 const userRoutes = require('./routes/userRoutes');
@@ -96,25 +110,40 @@ app.use('/api/expenses', auth, expenseRoutes);
 app.use('/api/incomes', auth, incomeRoutes);
 app.use('/api/ai', aiRoutes);
 
-// Production Static Files
+// Production Frontend Serving
 if (process.env.NODE_ENV === 'production') {
-  const frontendBuildPath = path.join(__dirname, '..', 'Makjuz-payroll', 'dist');
+  const frontendBuildPath = path.join(__dirname, 'public');
   app.use(express.static(frontendBuildPath));
+
   app.get('*', (req, res, next) => {
-    if (req.path.startsWith('/api/') || req.path.startsWith('/uploads/')) return next();
-    res.sendFile(path.join(frontendBuildPath, 'index.html'));
+    if (req.path.startsWith('/api/') || req.path.startsWith('/uploads/') || req.path.startsWith('/templates/')) {
+      return next();
+    }
+    const indexPath = path.join(frontendBuildPath, 'index.html');
+    if (fs.existsSync(indexPath)) {
+      res.sendFile(indexPath);
+    } else {
+      next();
+    }
+  });
+} else {
+  app.get('/', (req, res) => {
+    res.send('Levivaan Backend is Running...');
   });
 }
 
 // Global Error Handler
 app.use((err, req, res, next) => {
-  logger.error(`${req.method} ${req.path} - Error: ${err.message}`, { stack: err.stack });
+  console.error('SERVER_ERROR:', err.message);
+  logger.error(`${req.method} ${req.path} - ${err.message}`, { stack: err.stack });
+
   res.status(err.status || 500).json({
-    message: 'Something went wrong!',
+    message: 'Internal Server Error',
     error: process.env.NODE_ENV === 'development' ? err.message : undefined
   });
 });
 
 app.listen(PORT, () => {
-  logger.info(`Server running at http://localhost:${PORT}`);
+  console.log(`Server running at http://localhost:${PORT}`);
+  logger.info(`Server started on port ${PORT}`);
 });
