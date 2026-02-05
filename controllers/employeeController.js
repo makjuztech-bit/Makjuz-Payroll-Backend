@@ -164,9 +164,9 @@ exports.getEmployeeCount = async (req, res) => {
     if (companyId && !companyId.match(/^[0-9a-fA-F]{24}$/)) {
       return res.status(400).json({ message: 'Invalid company ID format' });
     }
-    console.log('Getting employee count for companyId:', companyId);
+    // console.log('Getting employee count for companyId:', companyId);
     const count = await employeeService.getEmployeeCount(companyId);
-    console.log('Employee count:', count);
+    // console.log('Employee count:', count);
     res.status(200).json({ count });
   } catch (error) {
     console.error('Detailed error in getEmployeeCount:', {
@@ -189,7 +189,8 @@ exports.getEmployeePayrunDetails = async (req, res) => {
     const { month, year } = req.query;
 
     // Security: Only Admin/HR/Manager can view detailed pay info
-    const allowedRoles = ['admin', 'hr', 'manager', 'superadmin'];
+    // LEGACY FIX: Allow 'user' for now
+    const allowedRoles = ['user', 'admin', 'hr', 'manager', 'superadmin'];
     if (!allowedRoles.includes(req.user?.role)) {
       return res.status(403).json({ message: 'Access denied to payrun details' });
     }

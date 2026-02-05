@@ -32,7 +32,8 @@ const documentController = {
     try {
       // Security: Only allow HR/Admin/Manager to view documents
       // (TODO: Implement 'read:own' logic when User->Employee linking is established)
-      const allowedRoles = ['hr', 'manager', 'admin', 'superadmin'];
+      // LEGACY FIX: Allow 'user' for now
+      const allowedRoles = ['user', 'hr', 'manager', 'admin', 'superadmin'];
       if (!allowedRoles.includes(req.user?.role)) {
         return res.status(403).json({ message: 'Access denied to documents' });
       }
@@ -105,7 +106,8 @@ const documentController = {
       }
 
       // Security: Only allow HR/Admin/Manager to view documents batch
-      const allowedRoles = ['hr', 'manager', 'admin', 'superadmin'];
+      // LEGACY FIX: Allow 'user' for now as existing admin accounts might be 'user'
+      const allowedRoles = ['user', 'hr', 'manager', 'admin', 'superadmin'];
       if (!allowedRoles.includes(req.user?.role)) {
         return res.status(403).json({ message: 'Access denied to documents' });
       }

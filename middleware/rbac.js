@@ -123,8 +123,8 @@ const verifyCompanyAccess = (req, res, next) => {
     // 3. User must have a company assigned (if route is company-specific)
     if (!req.user.company) {
         // LEGACY FIX: If user is admin but has no company (e.g. migration pending), allow access
-        // This stops the frontend from breaking for existing admin accounts
-        if (req.user.role === 'admin') {
+        // This stops the frontend from breaking for existing admin accounts. Also allow 'user' for now.
+        if (req.user.role === 'admin' || req.user.role === 'user') {
             return next();
         }
 

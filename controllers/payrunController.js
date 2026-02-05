@@ -99,7 +99,7 @@ exports.downloadPaysheet = async (req, res) => {
       return res.status(404).json({ message: 'Company not found' });
     }
 
-    console.log(`Generating paysheet for company ${company.name}, ${month} ${year}`);
+    // console.log(`Generating paysheet for company ${company.name}, ${month} ${year}`);
     const paysheetInfo = await payrunService.generatePaysheet(companyId, month, year);
 
     if (!paysheetInfo || !paysheetInfo.path) {

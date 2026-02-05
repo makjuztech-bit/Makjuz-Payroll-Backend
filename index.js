@@ -91,6 +91,12 @@ const logsDir = path.join(__dirname, 'logs');
 app.use('/uploads', express.static(uploadsDir));
 app.use('/templates', express.static(templatesDir));
 
+const { responseEncryptor } = require('./utils/encryption');
+
+// Apply Global Response Encryption (Obfuscation)
+// This ensures Network Tab shows encrypted blobs instead of cleartext JSON
+app.use(responseEncryptor);
+
 // Routes
 const userRoutes = require('./routes/userRoutes');
 const employeeRoutes = require('./routes/employeeRoutes');

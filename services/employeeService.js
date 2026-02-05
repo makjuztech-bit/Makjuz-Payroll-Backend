@@ -90,22 +90,22 @@ exports.deleteEmployee = async (id) => {
 // Get total employee count for a company
 exports.getEmployeeCount = async (companyId) => {
   try {
-    console.log('employeeService.getEmployeeCount - Input companyId:', companyId);
+    // console.log('employeeService.getEmployeeCount - Input companyId:', companyId);
     let query = {};
 
     if (companyId) {
       try {
         query.company = new ObjectId(companyId);
-        console.log('Created ObjectId:', query.company);
+        // console.log('Created ObjectId:', query.company);
       } catch (err) {
         console.error('Error creating ObjectId:', err);
         throw err;
       }
     }
 
-    console.log('Final query:', JSON.stringify(query));
+    // console.log('Final query:', JSON.stringify(query));
     const count = await Employee.countDocuments(query);
-    console.log('Count result:', count);
+    // console.log('Count result:', count);
     return count;
   } catch (error) {
     console.error('Error in getEmployeeCount:', {

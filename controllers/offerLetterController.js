@@ -104,7 +104,7 @@ exports.sendBatchOfferLetters = async (req, res) => {
 
     for (const candidateData of candidates) {
         try {
-            console.log(`Processing offer letter for ${candidateData.name}...`);
+            // console.log(`Processing offer letter for ${candidateData.name}...`);
             const pdfBuffer = await generateOfferLetterPDF(candidateData);
             const safeName = (candidateData.name || 'Candidate').replace(/[^a-zA-Z0-9]/g, '_');
 
