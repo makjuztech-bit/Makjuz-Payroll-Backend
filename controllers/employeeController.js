@@ -3,8 +3,8 @@ const employeeService = require('../services/employeeService');
 // Get all employees
 exports.getAllEmployees = async (req, res) => {
   try {
-    const { companyId } = req.query;
-    const employees = await employeeService.getAllEmployees(companyId);
+    const { companyId, status } = req.query;
+    const employees = await employeeService.getAllEmployees(companyId, status);
     res.status(200).json(employees);
   } catch (error) {
     console.error('Error fetching employees:', error);

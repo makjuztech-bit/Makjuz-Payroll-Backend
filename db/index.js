@@ -3,12 +3,13 @@ const mongoose = require('mongoose');
 const connectDB = async () => {
   try {
     console.log('Attempting to connect to MongoDB...');
-    await mongoose.connect('mongodb+srv://madhavan:EgFHpkXVWLxZmube@levivaan.xns2kil.mongodb.net/levivaan?retryWrites=true&w=majority&appName=levivaan', {
+    const mongoURI = process.env.MONGO_URI || 'mongodb+srv://madhavan:EgFHpkXVWLxZmube@levivaan.xns2kil.mongodb.net/levivaan?retryWrites=true&w=majority&appName=levivaan';
+    await mongoose.connect(mongoURI, {
       useNewUrlParser: true,
       useUnifiedTopology: true
     });
     console.log('MongoDB connected successfully');
-    
+
     // Log connection state
     const state = mongoose.connection.readyState;
     console.log('MongoDB connection state:', {
@@ -18,7 +19,7 @@ const connectDB = async () => {
       3: 'disconnecting',
       4: 'invalid'
     }[state] || 'unknown');
-    
+
   } catch (error) {
     console.error('MongoDB connection error:', {
       error: error.toString(),

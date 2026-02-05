@@ -113,6 +113,7 @@ const employeeSchema = new mongoose.Schema({
   },
   status: {
     type: String,
+    enum: ['Active', 'Inactive', 'Recycled'],
     default: 'Active'
   },
   payrun_details: {
@@ -143,7 +144,9 @@ const employeeSchema = new mongoose.Schema({
       grandTotal: Number,
       dbt: Number,
       remarks: String,
-      bankAccount: String
+      bankAccount: String,
+      pfAmount: Number,
+      esiAmount: Number
     }
   },
   DOB: {

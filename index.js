@@ -48,6 +48,10 @@ const campaignRoutes = require('./routes/campaignRoutes');
 const benefitRoutes = require('./routes/benefitRoutes');
 const documentRoutes = require('./routes/documentRoutes');
 const payrunRoutes = require('./routes/payrunRoutes');
+const offerLetterRoutes = require('./routes/offerLetterRoutes');
+const expenseRoutes = require('./routes/expenseRoutes');
+const incomeRoutes = require('./routes/incomeRoutes');
+const aiRoutes = require('./routes/aiRoutes');
 const auth = require('./middleware/auth');
 
 // Public routes
@@ -60,6 +64,10 @@ app.use('/api/campaigns', auth, campaignRoutes);
 app.use('/api/benefits', auth, benefitRoutes);
 app.use('/api/documents', auth, documentRoutes);
 app.use('/api/payruns', auth, payrunRoutes);
+app.use('/api/offer-letters', auth, offerLetterRoutes);
+app.use('/api/expenses', auth, expenseRoutes);
+app.use('/api/incomes', auth, incomeRoutes);
+app.use('/api/ai', aiRoutes);
 
 // Root route
 app.get('/', (req, res) => {

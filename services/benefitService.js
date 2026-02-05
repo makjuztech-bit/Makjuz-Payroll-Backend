@@ -12,7 +12,7 @@ const benefitService = {
 
   getBenefits: async (companyId) => {
     try {
-      return await Benefit.find({ company: companyId });
+      return await Benefit.find({ company: companyId }).populate('employee', 'name emp_id_no');
     } catch (error) {
       throw error;
     }

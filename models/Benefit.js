@@ -9,7 +9,7 @@ const benefitSchema = new mongoose.Schema({
     type: String,
     required: true
   },
-  
+
   type: {
     type: String,
     required: true,
@@ -27,6 +27,10 @@ const benefitSchema = new mongoose.Schema({
     type: mongoose.Schema.Types.ObjectId,
     ref: 'Company',
     required: true
+  },
+  employee: {
+    type: mongoose.Schema.Types.ObjectId,
+    ref: 'Employee'
   },
   createdAt: {
     type: Date,

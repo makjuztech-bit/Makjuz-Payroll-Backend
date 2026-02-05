@@ -162,6 +162,8 @@ exports.getPayrunTemplate = async (req, res) => {
         'CANTEEN': 600,
         'MANAGEMENT FEE': 700,
         'INSURANCE': 150,
+        'PF AMOUNT': 1000,
+        'ESI AMOUNT': 200,
         'LOP': 0,
         'Remarks': '',
         'Bank Account': '1234567890'
@@ -186,6 +188,8 @@ exports.getPayrunTemplate = async (req, res) => {
       { wch: 10 },  // CANTEEN
       { wch: 15 },  // MANAGEMENT FEE
       { wch: 12 },  // INSURANCE
+      { wch: 12 },  // PF AMOUNT
+      { wch: 12 },  // ESI AMOUNT
       { wch: 8 },   // LOP
       { wch: 20 },  // Remarks
       { wch: 20 }   // Bank Accout
@@ -224,5 +228,175 @@ exports.getPayrunTemplate = async (req, res) => {
   } catch (error) {
     console.error('Error generating payrun template:', error);
     res.status(500).json({ message: 'Error generating template', details: error.message });
+  }
+};
+
+// Download PF Report
+exports.downloadPFReport = async (req, res) => {
+  try {
+    const { companyId, month, year, format = 'xlsx' } = req.query;
+    if (!companyId || !month || !year) {
+      return res.status(400).json({ message: 'Company ID, month and year are required' });
+    }
+
+    const reportInfo = await payrunService.generatePFReport(companyId, month, year, format);
+
+    if (format === 'xlsx') {
+      res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
+    } else {
+      res.setHeader('Content-Type', 'text/plain');
+    }
+
+    res.setHeader('Content-Disposition', `attachment; filename=${reportInfo.filename}`);
+
+    const fileStream = fs.createReadStream(reportInfo.path);
+    fileStream.pipe(res);
+
+    fileStream.on('end', () => {
+      try { fs.unlinkSync(reportInfo.path); } catch (e) { console.error('Error cleaning up:', e); }
+    });
+  } catch (error) {
+    console.error('Error downloading PF report:', error);
+    res.status(500).json({ message: error.message });
+  }
+};
+
+// Download ESI Report
+exports.downloadESIReport = async (req, res) => {
+  try {
+    const { companyId, month, year, format = 'xlsx' } = req.query;
+    if (!companyId || !month || !year) {
+      return res.status(400).json({ message: 'Company ID, month and year are required' });
+    }
+
+    const reportInfo = await payrunService.generateESIReport(companyId, month, year, format);
+
+    if (format === 'xlsx') {
+      res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
+    } else {
+      res.setHeader('Content-Type', 'text/plain');
+    }
+
+    res.setHeader('Content-Disposition', `attachment; filename=${reportInfo.filename}`);
+
+    const fileStream = fs.createReadStream(reportInfo.path);
+    fileStream.pipe(res);
+
+    fileStream.on('end', () => {
+      try { fs.unlinkSync(reportInfo.path); } catch (e) { console.error('Error cleaning up:', e); }
+    });
+  } catch (error) {
+    console.error('Error downloading ESI report:', error);
+    res.status(500).json({ message: error.message });
+  }
+  // Upload Payslip Template (Word)
+  exports.uploadPayslipTemplate = async (req, res) => {
+    try {
+      if (!req.file) {
+        return res.status(400).json({ message: 'No template file uploaded' });
+      }
+
+      const templatesDir = path.join(__dirname, '..', 'templates');
+      if (!fs.existsSync(templatesDir)) {
+        fs.mkdirSync(templatesDir, { recursive: true });
+      }
+
+      const targetPath = path.join(templatesDir, 'payslip_template.docx');
+
+      // Move/Rename file
+      fs.renameSync(req.file.path, targetPath);
+
+      res.status(200).json({ message: 'Payslip template uploaded successfully' });
+    } catch (error) {
+      console.error('Error uploading template:', error);
+      res.status(500).json({ message: 'Error uploading template', details: error.message });
+    }
+  };
+
+  // Download Word Payslip
+  exports.downloadWordPayslip = async (req, res) => {
+    try {
+      const { companyId, month, year, employeeId } = req.query;
+      if (!companyId || !month || !year || !employeeId) {
+        return res.status(400).json({ message: 'Company ID, Employee ID, month and year are required' });
+      }
+
+      const result = await payrunService.generateWordPayslip(companyId, employeeId, month, year);
+
+      res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.wordprocessingml.document');
+      res.setHeader('Content-Disposition', `attachment; filename=${result.filename}`);
+
+      const fileStream = fs.createReadStream(result.path);
+      fileStream.pipe(res);
+
+      fileStream.on('end', () => {
+        try { fs.unlinkSync(result.path); } catch (e) { console.error('Cleanup error:', e); }
+      });
+
+    } catch (error) {
+      console.error('Error downloading Word payslip:', error);
+      res.status(500).json({ message: error.message });
+    }
+  }
+};
+
+// Download Invoice (Word)
+exports.downloadInvoice = async (req, res) => {
+  try {
+    const { companyId, month, year } = req.query;
+    if (!companyId || !month || !year) {
+      return res.status(400).json({ message: 'Company ID, month and year are required' });
+    }
+
+    const result = await payrunService.generateInvoice(companyId, month, year);
+
+    res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.wordprocessingml.document');
+    res.setHeader('Content-Disposition', `attachment; filename=${result.filename}`);
+
+    const fileStream = fs.createReadStream(result.path);
+    fileStream.pipe(res);
+
+    fileStream.on('end', () => {
+      try { fs.unlinkSync(result.path); } catch (e) { console.error('Cleanup error:', e); }
+    });
+
+  } catch (error) {
+    console.error('Error downloading Invoice:', error);
+    res.status(500).json({ message: error.message });
+  }
+};
+
+// Download Bank Report (IOB or Non-IOB, Excel or TXT)
+exports.downloadBankReport = async (req, res) => {
+  try {
+    const { companyId, month, year, type, format } = req.query;
+    if (!companyId || !month || !year || !type || !format) {
+      return res.status(400).json({ message: 'Company ID, month, year, type and format are required' });
+    }
+
+    const reportInfo = await payrunService.generateBankReport(companyId, month, year, type, format);
+
+    if (format === 'xlsx') {
+      res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
+    } else {
+      res.setHeader('Content-Type', 'text/plain');
+    }
+
+    res.setHeader('Content-Disposition', `attachment; filename=${reportInfo.filename}`);
+
+    const fileStream = fs.createReadStream(reportInfo.path);
+    fileStream.pipe(res);
+
+    fileStream.on('end', () => {
+      try {
+        fs.unlinkSync(reportInfo.path);
+      } catch (err) {
+        console.error('Error deleting bank report file:', err);
+      }
+    });
+
+  } catch (error) {
+    console.error('Error downloading bank report:', error);
+    res.status(500).json({ message: error.message });
   }
 };

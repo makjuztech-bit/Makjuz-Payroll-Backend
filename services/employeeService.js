@@ -4,7 +4,7 @@ const mongoose = require('mongoose');
 const { ObjectId } = mongoose.Types;
 
 // Fetch all employees
-exports.getAllEmployees = async (companyId) => {
+exports.getAllEmployees = async (companyId, status) => {
   try {
     let query = {};
     if (companyId) {
@@ -12,6 +12,11 @@ exports.getAllEmployees = async (companyId) => {
         throw new Error('Invalid company ID format');
       }
       query.company = new ObjectId(companyId);
+    }
+
+    // Add status filter if provided
+    if (status) {
+      query.status = status;
     }
     return await Employee.find(query).populate('company');
   } catch (error) {
@@ -139,102 +144,40 @@ exports.getEmployeePayrunDetails = async (id, month, year) => {
       return result;
     }
 
-    // If no stored details, calculate them
-    const date = new Date(`${month} 1, ${year}`);
-    const lastDay = new Date(year, date.getMonth() + 1, 0);
-    const totalDays = lastDay.getDate();
-    const workingDays = 24; // Standard working days per month (from requirement example)
-    const holidays = 0; // Default holidays
-    const presentDays = 21.5; // Default present days (from requirement example)
-    const otHours = 0; // Default OT hours
-
-    // Base values (from requirement example)
-    const fixedStipend = employee.fixed_stipend || 15146;
-    const specialAllowance = 1273; // Special allowance from example
-
-    // Calculate per day rates
-    const perDayStipend = fixedStipend / workingDays;
-    const perDaySpecialAllowance = specialAllowance / workingDays;
-
-    // Calculate earnings
-    const earnedStipend = Math.round(perDayStipend * presentDays);
-    const earnedSpecialAllowance = Math.round(perDaySpecialAllowance * presentDays);
-    const transport = 175; // Transport allowance from example
-    const earningsOt = otHours * 0; // No OT earnings in example
-    const attendanceIncentive = 0; // No attendance incentive in example
-
-    // Calculate deductions
-    const canteen = 591; // Canteen deduction from example
-    const managementFee = 700; // Management fee from example
-    const insurance = 150; // Insurance from example
-    const lop = (workingDays - presentDays) * perDayStipend;
-
-    // Calculate totals
-    const totalEarning = earnedStipend + earnedSpecialAllowance + transport + earningsOt + attendanceIncentive;
-    const totalDeductions = canteen + managementFee + insurance;
-    const netEarning = totalEarning - totalDeductions;
-    const finalNetpay = netEarning; // Make sure both properties are available
-
-    // Calculate billing 
-    const billableTotal = 15559; // From example
-    const gst = 2801; // GST from example
-    const grandTotal = 18359; // Grand total from example
-    const dbt = 1500; // From example
-    const remarks = "";
-    const bankAccount = employee.account_number || "";
-
-    const payrunDetails = {
-      // Attendance details
-      totalFixedDays: workingDays,
-      presentDays,
-      holidays,
-      otHours,
-      totalPayableDays: presentDays + holidays,
-
-      // Earnings
-      fixedStipend,
-      specialAllowance,
-      earnedStipend,
-      earnedSpecialAllowance,
-      earningsOt,
-      attendanceIncentive,
-      transport,
-
-      // Deductions
-      managementFee,
-      insurance,
-      canteen,
-      lop,
-
-      // Totals
-      totalEarning,
-      totalDeductions,
-      netEarning,
-      finalNetpay,
-
-      // Billing
-      billableTotal,
-      gst,
-      grandTotal,
-      dbt,
-      remarks,
-      bankAccount
-    };
-
-    console.log('Creating new payrun details:', payrunDetails);
-
-    // Store the calculated details
-    const update = { $set: { [`payrun_details.${key}`]: payrunDetails } };
-    await Employee.findByIdAndUpdate(id, update);
-
-    // Return a properly structured object
+    // If no stored details, return default empty structure (DO NOT SAVE TO DB)
     const result = {
       ...employee.toObject(),
-      ...payrunDetails,
-      fixed_stipend: employee.fixed_stipend // Make sure the snake_case version is included for compatibility
+      // Payrun defaults
+      fixed_stipend: employee.fixed_stipend,
+      totalFixedDays: 0,
+      presentDays: 0,
+      holidays: 0,
+      otHours: 0,
+      totalPayableDays: 0,
+      fixedStipend: employee.fixed_stipend || 0,
+      specialAllowance: 0,
+      earnedStipend: 0,
+      earnedSpecialAllowance: 0,
+      earningsOt: 0,
+      attendanceIncentive: 0,
+      transport: 0,
+      managementFee: 0,
+      insurance: 0,
+      canteen: 0,
+      lop: 0,
+      totalEarning: 0,
+      totalDeductions: 0,
+      netEarning: 0,
+      finalNetpay: 0,
+      billableTotal: 0,
+      gst: 0,
+      grandTotal: 0,
+      dbt: 0,
+      remarks: "",
+      bankAccount: employee.account_number || ""
     };
 
-    console.log('Returning newly calculated payrun data:', result);
+    console.log('Returning default empty payrun data (not saved):', result.emp_id_no);
     return result;
   } catch (error) {
     console.error('Error in getEmployeePayrunDetails:', error);

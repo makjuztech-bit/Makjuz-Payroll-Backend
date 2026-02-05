@@ -4,6 +4,9 @@ const fs = require('fs');
 const Employee = require('../models/Employee');
 const Company = require('../models/Company');
 const mongoose = require('mongoose');
+const { Document, Packer, Paragraph, TextRun, Table, TableRow, TableCell, WidthType, AlignmentType, Header, ImageRun, BorderStyle } = require('docx');
+const Docxtemplater = require('docxtemplater');
+const PizZip = require('pizzip');
 
 // Helper to find value from row using multiple possible key names (case/symbol insensitive)
 const getValue = (row, aliases, defaultValue = 0) => {
@@ -48,6 +51,37 @@ exports.processPayrunExcel = async (filePath, month, year, companyId, columnMapp
 
     if (!rawData || rawData.length === 0) {
       throw new Error("Excel sheet is empty");
+    }
+
+    // Number to Words Converter (Indian Numbering System)
+    function convertNumberToWords(n) {
+      if (n < 0) return false;
+      single_digit = ['', 'One', 'Two', 'Three', 'Four', 'Five', 'Six', 'Seven', 'Eight', 'Nine']
+      double_digit = ['Ten', 'Eleven', 'Twelve', 'Thirteen', 'Fourteen', 'Fifteen', 'Sixteen', 'Seventeen', 'Eighteen', 'Nineteen']
+      below_hundred = ['Twenty', 'Thirty', 'Forty', 'Fifty', 'Sixty', 'Seventy', 'Eighty', 'Ninety']
+      if (n === 0) return 'Zero'
+      function translate(n) {
+        word = ""
+        if (n < 10) {
+          word = single_digit[n] + ' '
+        } else if (n < 20) {
+          word = double_digit[n - 10] + ' '
+        } else if (n < 100) {
+          rem = translate(n % 10)
+          word = below_hundred[(n - n % 10) / 10 - 2] + ' ' + rem
+        } else if (n < 1000) {
+          word = single_digit[Math.trunc(n / 100)] + ' Hundred ' + translate(n % 100)
+        } else if (n < 100000) {
+          word = translate(Math.trunc(n / 1000)) + ' Thousand ' + translate(n % 1000)
+        } else if (n < 10000000) {
+          word = translate(Math.trunc(n / 100000)) + ' Lakh ' + translate(n % 100000)
+        } else {
+          word = translate(Math.trunc(n / 10000000)) + ' Crore ' + translate(n % 10000000)
+        }
+        return word
+      }
+      result = translate(n)
+      return result.trim() + ' ';
     }
 
     // Smart Header Detection
@@ -316,11 +350,13 @@ const calculatePayrunFromRowArray = (row, employee, getValue) => {
   const canteen = parseFloat(getValue(row, ['CANTEEN', 'Food', 'Mess'], 'canteen', 0));
   const managementFee = parseFloat(getValue(row, ['MANAGEMENT FEE', 'Fee', 'Admin Fee'], 'managementFee', 0));
   const insurance = parseFloat(getValue(row, ['INSURANCE', 'Medical', 'Health', 'Ins'], 'insurance', 0));
+  const pfAmount = parseFloat(getValue(row, ['PF AMOUNT', 'PF', 'Provident Fund', 'EPF'], 'pfAmount', 0));
+  const esiAmount = parseFloat(getValue(row, ['ESI AMOUNT', 'ESI', 'Employee State Insurance'], 'esiAmount', 0));
   const lop = parseFloat(getValue(row, ['LOP', 'Loss of Pay'], 'lop', 0));
 
   // Calculate totals
   const totalEarning = parseFloat(getValue(row, ['TOTAL EARNING', 'Gross Earning', 'Total Earnings'], 'totalEarning', earnedStipend + earnedSpecialAllowance + earningsOt + attendanceIncentive + transport));
-  const totalDeductions = parseFloat(getValue(row, ['TOTAL DEDUCTIONS', 'Total Deduction'], 'totalDeductions', canteen + managementFee + insurance + lop));
+  const totalDeductions = parseFloat(getValue(row, ['TOTAL DEDUCTIONS', 'Total Deduction'], 'totalDeductions', canteen + managementFee + insurance + pfAmount + esiAmount + lop));
 
   // Net earning calculation
   const calculatedNet = totalEarning - totalDeductions;
@@ -361,6 +397,8 @@ const calculatePayrunFromRowArray = (row, employee, getValue) => {
     // Deductions
     managementFee,
     insurance,
+    pfAmount,
+    esiAmount,
     canteen,
     lop,
 
@@ -480,6 +518,8 @@ exports.generatePaysheet = async (companyId, month, year) => {
         'NET EARNING': payrun.netEarning || 0,
         'MANAGEMENT FEE': payrun.managementFee || 0,
         'INSURANCE': payrun.insurance || 0,
+        'PF AMOUNT': payrun.pfAmount || 0,
+        'ESI AMOUNT': payrun.esiAmount || 0,
         'BILLABLE TOTAL': payrun.billableTotal || 0,
         'GST@ 18%': payrun.gst || 0,
         'GRAND TOTAL': payrun.grandTotal || 0,
@@ -527,6 +567,8 @@ exports.generatePaysheet = async (companyId, month, year) => {
       { wch: 13 },  // NET EARNING
       { wch: 15 },  // MANAGEMENT FEE
       { wch: 12 },  // INSURANCE
+      { wch: 12 },  // PF AMOUNT
+      { wch: 12 },  // ESI AMOUNT
       { wch: 15 },  // BILLABLE TOTAL
       { wch: 10 },  // GST@ 18%
       { wch: 13 },  // GRAND TOTAL
@@ -593,4 +635,711 @@ exports.generatePaysheet = async (companyId, month, year) => {
     console.error('Error generating paysheet:', error);
     throw error;
   }
-}; 
+};
+
+// Generate PF report for a specific month/year
+exports.generatePFReport = async (companyId, month, year, format = 'xlsx') => {
+  try {
+    const key = `${month}_${year}`;
+    const query = { company: new mongoose.Types.ObjectId(companyId), [`payrun_details.${key}`]: { $exists: true } };
+    const employees = await Employee.find(query).populate('company');
+
+    if (employees.length === 0) {
+      throw new Error('No payrun data found for the selected month and year');
+    }
+
+    const pfData = employees.map((employee, index) => {
+      const payrun = employee.payrun_details.get(key);
+      if (!payrun) return null;
+
+      const epfWages = payrun.fixedStipend || 0;
+      const epsWages = Math.min(epfWages, 15000);
+
+      return {
+        'SNo': index + 1,
+        'EmpCode': employee.emp_id_no || '',
+        'UANNo': employee.uan || '',
+        'EmpName': employee.name || '',
+        'Gross': payrun.totalEarning || 0,
+        'EPFWages': epfWages,
+        'EPSWages': epsWages,
+        'EDLIWages': epsWages,
+        'EmployeeContribution': payrun.pfAmount || 0,
+        'EPSContribution': 0,
+        'DIFF': 0,
+        'NCPDays': (payrun.totalFixedDays || 30) - (payrun.presentDays || 0),
+        'ReturnofAdvance': 0,
+        'Remarks': ''
+      };
+    }).filter(Boolean);
+
+    const filename = `PF_Report_${month}_${year}_${Date.now()}.${format}`;
+    const filePath = path.join(__dirname, '..', 'uploads', filename);
+    const uploadsDir = path.join(__dirname, '..', 'uploads');
+    if (!fs.existsSync(uploadsDir)) fs.mkdirSync(uploadsDir, { recursive: true });
+
+    if (format === 'xlsx') {
+      const workbook = xlsx.utils.book_new();
+      const worksheet = xlsx.utils.json_to_sheet(pfData);
+
+      // Set column widths
+      const colWidths = [
+        { wch: 6 },   // SNo
+        { wch: 12 },  // EmpCode
+        { wch: 15 },  // UANNo
+        { wch: 25 },  // EmpName
+        { wch: 12 },  // Gross
+        { wch: 12 },  // EPFWages
+        { wch: 12 },  // EPSWages
+        { wch: 12 },  // EDLIWages
+        { wch: 18 },  // EmployeeContribution
+        { wch: 15 },  // EPSContribution
+        { wch: 10 },  // DIFF
+        { wch: 10 },  // NCPDays
+        { wch: 15 },  // ReturnofAdvance
+        { wch: 15 }   // Remarks
+      ];
+      worksheet['!cols'] = colWidths;
+
+      xlsx.utils.book_append_sheet(workbook, worksheet, 'PF Report');
+      xlsx.writeFile(workbook, filePath);
+    } else {
+      // TXT format - Tab separated
+      let textContent = '';
+      if (pfData.length > 0) {
+        textContent += Object.keys(pfData[0]).join('\t') + '\n';
+        pfData.forEach(row => {
+          textContent += Object.values(row).join('\t') + '\n';
+        });
+      }
+      fs.writeFileSync(filePath, textContent);
+    }
+
+    return { filename, path: filePath };
+  } catch (error) {
+    console.error('Error generating PF report:', error);
+    throw error;
+  }
+};
+
+
+
+// Generate Word Payslip
+exports.generateWordPayslip = async (companyId, employeeId, month, year) => {
+  try {
+    const key = `${month}_${year}`;
+    const employee = await Employee.findById(employeeId).populate('company');
+
+    if (!employee) throw new Error('Employee not found');
+
+    const payrun = employee.payrun_details.get(key);
+    if (!payrun) throw new Error('Payrun data not found for valid employee');
+
+    const imagePath = path.join(__dirname, '..', '..', 'Makjuz-payroll', 'src', 'assets', 'image.png');
+    let imageBuffer;
+    try {
+      imageBuffer = fs.readFileSync(imagePath);
+    } catch (e) {
+      console.warn('Logo image not found at', imagePath);
+    }
+
+    const totalDeductions = (payrun.totalDeductions || 0);
+    const finalNetpay = (payrun.finalNetpay || payrun.netEarning || 0);
+
+    const doc = new Document({
+      sections: [{
+        properties: {},
+        children: [
+          // Header with Logo and Title
+          new Paragraph({
+            children: [
+              ...(imageBuffer ? [new ImageRun({
+                data: imageBuffer,
+                transformation: { width: 150, height: 60 },
+              })] : []),
+              new TextRun({
+                text: "\t\t\t\t\tTAX INVOICE",
+                bold: true,
+                size: 32,
+              }),
+            ],
+          }),
+          new Paragraph({
+            alignment: AlignmentType.CENTER,
+            children: [new TextRun({ text: `Payslip for ${month} ${year}`, size: 24 })]
+          }),
+          new Paragraph({ text: "" }),
+
+          // Details Table (Invoice No, Date, etc.)
+          new Table({
+            width: { size: 100, type: WidthType.PERCENTAGE },
+            rows: [
+              new TableRow({
+                children: [
+                  new TableCell({
+                    children: [
+                      new Paragraph({ children: [new TextRun({ text: "Invoice No: ", bold: true }), new TextRun(`LEV/${employee.emp_id_no}/${year.slice(-2)}-${parseInt(year.slice(-2)) + 1}`)] }),
+                      new Paragraph({ children: [new TextRun({ text: "Invoice Date: ", bold: true }), new TextRun(new Date().toLocaleDateString('en-GB'))] }),
+                      new Paragraph({ children: [new TextRun({ text: "Tax Reverse Charge (Y/N): ", bold: true }), new TextRun("No")] }),
+                      new Paragraph({ children: [new TextRun({ text: "State / Code: ", bold: true }), new TextRun("Tamil Nadu / 33")] }),
+                    ],
+                  }),
+                  new TableCell({
+                    children: [
+                      new Paragraph({ children: [new TextRun({ text: "PO Number / Date: ", bold: true }), new TextRun("-")] }),
+                      new Paragraph({ children: [new TextRun({ text: "GSTIN: ", bold: true }), new TextRun("33AAECL8763A1Z0")] }),
+                      new Paragraph({ children: [new TextRun({ text: "SAC Code: ", bold: true }), new TextRun("998519")] }),
+                    ],
+                  }),
+                ],
+              }),
+            ],
+          }),
+          new Paragraph({ text: "" }),
+
+          // Parties Table
+          new Table({
+            width: { size: 100, type: WidthType.PERCENTAGE },
+            rows: [
+              new TableRow({
+                children: [
+                  new TableCell({
+                    children: [
+                      new Paragraph({ children: [new TextRun({ text: "Bill To Party (Employee):", bold: true })] }),
+                      new Paragraph({ text: employee.name }),
+                      new Paragraph({ text: `Emp ID: ${employee.emp_id_no}` }),
+                      new Paragraph({ text: employee.department || "-" }),
+                      new Paragraph({ text: employee.communication_address || "-" }),
+                      new Paragraph({
+                        children: [
+                          new TextRun({ text: "Bank Type: ", bold: true }),
+                          new TextRun((employee.ifsc_code && employee.ifsc_code.toUpperCase().startsWith('IOBA')) ? "IOB" : "NON IOB")
+                        ]
+                      }),
+                    ],
+                  }),
+                  new TableCell({
+                    children: [
+                      new Paragraph({ children: [new TextRun({ text: "Shipped From / Seller:", bold: true })] }),
+                      new Paragraph({ text: "LEVIVAAN SOLUTIONS PVT LTD" }),
+                      new Paragraph({ text: "17/2, Thirupathinagar, Kolathur, Chennai" }),
+                      new Paragraph({ text: "GSTIN: 33AAECL8763A1Z0" }),
+                    ],
+                  }),
+                ],
+              }),
+            ],
+          }),
+          new Paragraph({ text: "" }),
+
+          // Earning Table
+          new Table({
+            width: { size: 100, type: WidthType.PERCENTAGE },
+            rows: [
+              new TableRow({
+                backgroundColor: "f2f2f2",
+                children: [
+                  new TableCell({ children: [new Paragraph({ text: "Description", bold: true })] }),
+                  new TableCell({ children: [new Paragraph({ text: "Rate", bold: true })] }),
+                  new TableCell({ children: [new Paragraph({ text: "Qty", bold: true })] }),
+                  new TableCell({ children: [new Paragraph({ text: "Amount", bold: true })] }),
+                ],
+              }),
+              new TableRow({
+                children: [
+                  new TableCell({ children: [new Paragraph(`CTC Salary - ${month} ${year}`)] }),
+                  new TableCell({ children: [new Paragraph("-")] }),
+                  new TableCell({ children: [new Paragraph((payrun.presentDays || 0).toString())] }),
+                  new TableCell({ children: [new Paragraph((payrun.totalEarning || 0).toFixed(2))] }),
+                ],
+              }),
+              new TableRow({
+                children: [
+                  new TableCell({ children: [new Paragraph("Less: Total Deductions")] }),
+                  new TableCell({ children: [new Paragraph("-")] }),
+                  new TableCell({ children: [new Paragraph("-")] }),
+                  new TableCell({ children: [new Paragraph(`-${totalDeductions.toFixed(2)}`)] }),
+                ],
+              }),
+              new TableRow({
+                children: [
+                  new TableCell({ children: [new Paragraph({ text: "Total Net Payable", bold: true })], columnSpan: 3 }),
+                  new TableCell({ children: [new Paragraph({ text: finalNetpay.toFixed(2), bold: true })] }),
+                ],
+              }),
+            ],
+          }),
+
+          new Paragraph({ text: "" }),
+          new Paragraph({ children: [new TextRun({ text: "Amount in Words: ", bold: true }), new TextRun({ text: `Rupee ${convertNumberToWords(Math.round(finalNetpay))} Only`, italic: true })] }),
+
+          new Paragraph({ text: "" }),
+          new Paragraph({ children: [new TextRun({ text: "Details Of Payment: ", bold: true }), new TextRun("Levivaan Solutions Private Limited, A/C: 332802000000181, IFSC: IOBA0003328")] }),
+
+          new Paragraph({ text: "" }),
+          new Table({
+            width: { size: 100, type: WidthType.PERCENTAGE },
+            rows: [
+              new TableRow({
+                children: [
+                  new TableCell({
+                    children: [
+                      new Paragraph({ text: "Terms & Conditions:", bold: true }),
+                      new Paragraph({ text: "Actual price of service provided. Disputes subject to Chennai Jurisdiction.", size: 16 }),
+                    ],
+                    width: { size: 60, type: WidthType.PERCENTAGE },
+                  }),
+                  new TableCell({
+                    children: [
+                      new Paragraph({ alignment: AlignmentType.CENTER, children: [new TextRun("For Levivaan Solutions Pvt Ltd")] }),
+                      new Paragraph({ text: "" }),
+                      new Paragraph({ text: "" }),
+                      new Paragraph({ alignment: AlignmentType.CENTER, children: [new TextRun({ text: "A. Silambarasan", bold: true }), new TextRun("\nDirector")] }),
+                    ],
+                    width: { size: 40, type: WidthType.PERCENTAGE },
+                  }),
+                ],
+              }),
+            ],
+          }),
+        ],
+      }],
+    });
+
+    const filename = `Payslip_${employee.name.replace(/ /g, '_')}_${month}_${year}.docx`;
+    const outputPath = path.join(__dirname, '..', 'uploads', filename);
+
+    const uploadsDir = path.join(__dirname, '..', 'uploads');
+    if (!fs.existsSync(uploadsDir)) fs.mkdirSync(uploadsDir, { recursive: true });
+
+    const buffer = await Packer.toBuffer(doc);
+    fs.writeFileSync(outputPath, buffer);
+    return { filename, path: outputPath };
+
+
+  } catch (error) {
+    console.error('Error generating Word payslip:', error);
+    throw error;
+  }
+};
+
+// Number to Words Converter (Indian Numbering System)
+function convertNumberToWords(n) {
+  if (n < 0) return false;
+  const single_digit = ['', 'One', 'Two', 'Three', 'Four', 'Five', 'Six', 'Seven', 'Eight', 'Nine'];
+  const double_digit = ['Ten', 'Eleven', 'Twelve', 'Thirteen', 'Fourteen', 'Fifteen', 'Sixteen', 'Seventeen', 'Eighteen', 'Nineteen'];
+  const below_hundred = ['Twenty', 'Thirty', 'Forty', 'Fifty', 'Sixty', 'Seventy', 'Eighty', 'Ninety'];
+  if (n === 0) return 'Zero';
+
+  function translate(n) {
+    let word = "";
+    if (n < 10) {
+      word = single_digit[n] + ' ';
+    } else if (n < 20) {
+      word = double_digit[n - 10] + ' ';
+    } else if (n < 100) {
+      const rem = translate(n % 10);
+      word = below_hundred[(n - n % 10) / 10 - 2] + ' ' + rem;
+    } else if (n < 1000) {
+      word = single_digit[Math.trunc(n / 100)] + ' Hundred ' + translate(n % 100);
+    } else if (n < 100000) {
+      word = translate(Math.trunc(n / 1000)) + ' Thousand ' + translate(n % 1000);
+    } else if (n < 10000000) {
+      word = translate(Math.trunc(n / 100000)) + ' Lakh ' + translate(n % 100000);
+    } else {
+      word = translate(Math.trunc(n / 10000000)) + ' Crore ' + translate(n % 10000000);
+    }
+    return word;
+  }
+  const result = translate(n);
+  return result.trim() + ' ';
+}
+
+// Generate Invoice (Word)
+exports.generateInvoice = async (companyId, month, year) => {
+  try {
+    const key = `${month}_${year}`;
+    const Company = require('../models/Company');
+    const company = await Company.findById(companyId);
+    if (!company) throw new Error('Company not found');
+
+    const query = { company: new mongoose.Types.ObjectId(companyId), [`payrun_details.${key}`]: { $exists: true } };
+    const employees = await Employee.find(query);
+
+    if (employees.length === 0) throw new Error('No payrun data found for invoice generation');
+
+    // Calculate Totals
+    let totalTaxable = 0;
+    employees.forEach(emp => {
+      const payrun = emp.payrun_details.get(key);
+      if (payrun) {
+        // Use billableTotal if available
+        totalTaxable += (payrun.billableTotal || 0);
+        // If billableTotal is 0, usage totalEarning is risky if billable total logic differs, but sticking to previous deduction
+        if (!payrun.billableTotal) totalTaxable += (payrun.totalEarning || 0);
+      }
+    });
+
+    const cgst = totalTaxable * 0.09;
+    const sgst = totalTaxable * 0.09;
+    const totalAmount = totalTaxable + cgst + sgst;
+
+    const imagePath = path.join(__dirname, '..', '..', 'Makjuz-payroll', 'src', 'assets', 'image.png');
+    let imageBuffer;
+    try {
+      imageBuffer = fs.readFileSync(imagePath);
+    } catch (e) {
+      console.warn('Logo image not found at', imagePath);
+    }
+
+    const doc = new Document({
+      sections: [{
+        properties: {},
+        children: [
+          new Paragraph({
+            children: [
+              ...(imageBuffer ? [new ImageRun({
+                data: imageBuffer,
+                transformation: { width: 150, height: 60 },
+              })] : []),
+              new TextRun({
+                text: "\t\t\t\t\tTAX INVOICE",
+                bold: true,
+                size: 32,
+              }),
+            ],
+          }),
+          new Paragraph({ text: "" }),
+
+          new Table({
+            width: { size: 100, type: WidthType.PERCENTAGE },
+            rows: [
+              new TableRow({
+                children: [
+                  new TableCell({
+                    children: [
+                      new Paragraph({ text: "Invoice No:", bold: true }),
+                      new Paragraph({ text: "Invoice Date:", bold: true }),
+                      new Paragraph({ text: "Tax Reverse Charge (Y/N):", bold: true }),
+                      new Paragraph({ text: "State / Code:", bold: true }),
+                    ],
+                    width: { size: 50, type: WidthType.PERCENTAGE },
+                    borders: { top: { style: BorderStyle.NONE }, left: { style: BorderStyle.NONE }, right: { style: BorderStyle.NONE }, bottom: { style: BorderStyle.NONE } }
+                  }),
+                  new TableCell({
+                    children: [
+                      new Paragraph({ text: `LEV/150/${year.slice(-2)}-${parseInt(year.slice(-2)) + 1}` }),
+                      new Paragraph({ text: new Date().toLocaleDateString('en-GB') }),
+                      new Paragraph({ text: "No" }),
+                      new Paragraph({ text: "Tamil Nadu / 33" }),
+                    ],
+                    width: { size: 50, type: WidthType.PERCENTAGE },
+                    borders: { top: { style: BorderStyle.NONE }, left: { style: BorderStyle.NONE }, right: { style: BorderStyle.NONE }, bottom: { style: BorderStyle.NONE } }
+                  }),
+                ],
+              }),
+            ],
+            borders: { top: { style: BorderStyle.NONE }, left: { style: BorderStyle.NONE }, right: { style: BorderStyle.NONE }, bottom: { style: BorderStyle.NONE } }
+          }),
+
+          new Paragraph({ text: "" }),
+
+          new Table({
+            width: { size: 100, type: WidthType.PERCENTAGE },
+            rows: [
+              new TableRow({
+                children: [
+                  new TableCell({
+                    children: [
+                      new Paragraph({ text: "Bill To Party:", bold: true }),
+                      new Paragraph({ text: company.name }),
+                      new Paragraph({ text: company.address || "Hosur, Tamil Nadu" }),
+                      new Paragraph({ text: `GSTIN: ${company.gstIn || "33AALCP2451Q1ZZ"}` }),
+                      new Paragraph({ text: `State Code: 33` }),
+                    ],
+                  }),
+                  new TableCell({
+                    children: [
+                      new Paragraph({ text: "Shipped From / Seller:", bold: true }),
+                      new Paragraph({ text: "LEVIVAAN SOLUTIONS PVT LTD" }),
+                      new Paragraph({ text: "17/2, Thirupathinagar, 1st main road," }),
+                      new Paragraph({ text: "Kolathur, Chennai - 99" }),
+                      new Paragraph({ text: "GSTIN: 33AAECL8763A1Z0" }),
+                    ],
+                  }),
+                ],
+              }),
+            ],
+          }),
+
+          new Paragraph({ text: "" }),
+
+          new Table({
+            width: { size: 100, type: WidthType.PERCENTAGE },
+            rows: [
+              new TableRow({
+                children: [
+                  new TableCell({ children: [new Paragraph({ text: "Product Description", bold: true })] }),
+                  new TableCell({ children: [new Paragraph({ text: "Rate", bold: true })] }),
+                  new TableCell({ children: [new Paragraph({ text: "Qty", bold: true })] }),
+                  new TableCell({ children: [new Paragraph({ text: "Amount", bold: true })] }),
+                ],
+              }),
+              new TableRow({
+                children: [
+                  new TableCell({ children: [new Paragraph(`CTC Salary of Employees – ${month} ${year}`)] }),
+                  new TableCell({ children: [new Paragraph("-")] }),
+                  new TableCell({ children: [new Paragraph("1")] }),
+                  new TableCell({ children: [new Paragraph(totalTaxable.toFixed(2))] }),
+                ],
+              }),
+              new TableRow({
+                children: [
+                  new TableCell({ children: [new Paragraph("SGST 9%")] }),
+                  new TableCell({ children: [new Paragraph("9%")] }),
+                  new TableCell({ children: [new Paragraph("-")] }),
+                  new TableCell({ children: [new Paragraph(sgst.toFixed(2))] }),
+                ],
+              }),
+              new TableRow({
+                children: [
+                  new TableCell({ children: [new Paragraph("CGST 9%")] }),
+                  new TableCell({ children: [new Paragraph("9%")] }),
+                  new TableCell({ children: [new Paragraph("-")] }),
+                  new TableCell({ children: [new Paragraph(cgst.toFixed(2))] }),
+                ],
+              }),
+              new TableRow({
+                children: [
+                  new TableCell({ children: [new Paragraph({ text: "Total", bold: true })], columnSpan: 3 }),
+                  new TableCell({ children: [new Paragraph({ text: totalAmount.toFixed(2), bold: true })] }),
+                ],
+              }),
+            ],
+          }),
+
+          new Paragraph({ text: "" }),
+          new Paragraph({ text: `Amount in Words: Rupee ${convertNumberToWords(Math.round(totalAmount))} Only`, italics: true }),
+
+          new Paragraph({ text: "" }),
+          new Paragraph({ text: "Terms & Conditions:", bold: true }),
+          new Paragraph({ text: "1. We declare that this invoice shows the actual price of the service provided." }),
+          new Paragraph({ text: "2. Cheque to be made in favor of 'Levivaan Solutions Private Limited'." }),
+
+          new Paragraph({ text: "" }),
+          new Paragraph({ text: "Bank Details:", bold: true }),
+          new Paragraph({ text: "A/C Name: Levivaan Solutions Private Limited" }),
+          new Paragraph({ text: "Account No: 332802000000181" }),
+          new Paragraph({ text: "IFSC: IOBA0003328" }),
+          new Paragraph({ text: "Bank: Indian Overseas Bank" }),
+
+          new Paragraph({ text: "" }),
+          new Paragraph({ text: "\t\t\t\t\tFor LEVIVAAN SOLUTIONS PVT LTD", bold: true }),
+          new Paragraph({ text: "\t\t\t\t\t(Authorised Signatory)" }),
+        ],
+      }],
+    });
+
+    const filename = `Invoice_${company.name}_${month}_${year}.docx`;
+    const outputPath = path.join(__dirname, '..', 'uploads', filename);
+
+    const uploadsDir = path.join(__dirname, '..', 'uploads');
+    if (!fs.existsSync(uploadsDir)) fs.mkdirSync(uploadsDir, { recursive: true });
+
+    const buffer = await Packer.toBuffer(doc);
+    fs.writeFileSync(outputPath, buffer);
+    return { filename, path: outputPath };
+
+  } catch (error) {
+    console.error('Error generating invoice:', error);
+    throw error;
+  }
+};
+
+// Generate ESI report for a specific month/year
+exports.generateESIReport = async (companyId, month, year, format = 'xlsx') => {
+  try {
+    const key = `${month}_${year}`;
+    const query = { company: new mongoose.Types.ObjectId(companyId), [`payrun_details.${key}`]: { $exists: true } };
+    const employees = await Employee.find(query).populate('company');
+
+    if (employees.length === 0) {
+      throw new Error('No payrun data found for the selected month and year');
+    }
+
+    const esiData = employees.map((employee, index) => {
+      const payrun = employee.payrun_details.get(key);
+      if (!payrun) return null;
+
+      const esiGross = payrun.totalEarning || 0;
+      const empContribution = payrun.esiAmount || 0;
+      // Employer Contribution is 3.25%
+      const employerContribution = Math.ceil(esiGross * 0.0325);
+      const totalContribution = empContribution + employerContribution;
+
+      return {
+        'S.No': index + 1,
+        'Associate Code': employee.emp_id_no || '',
+        'Associate Name': employee.name || '',
+        'ESINumber': employee.esi_number || '',
+        'Paid Days': payrun.presentDays || 0,
+        'ESI Gross': esiGross,
+        'Employee Contribution': empContribution,
+        'Employer Contribution': employerContribution,
+        'Total Contribution': totalContribution,
+        'Remark': ''
+      };
+    }).filter(Boolean);
+
+    const filename = `ESI_Report_${month}_${year}_${Date.now()}.${format}`;
+    const filePath = path.join(__dirname, '..', 'uploads', filename);
+    const uploadsDir = path.join(__dirname, '..', 'uploads');
+    if (!fs.existsSync(uploadsDir)) fs.mkdirSync(uploadsDir, { recursive: true });
+
+    if (format === 'xlsx') {
+      const workbook = xlsx.utils.book_new();
+      const worksheet = xlsx.utils.json_to_sheet(esiData);
+
+      const colWidths = [
+        { wch: 6 },   // S.No
+        { wch: 15 },  // Associate Code
+        { wch: 25 },  // Associate Name
+        { wch: 20 },  // ESINumber
+        { wch: 10 },  // Paid Days
+        { wch: 12 },  // ESI Gross
+        { wch: 18 },  // Employee Contribution
+        { wch: 18 },  // Employer Contribution
+        { wch: 18 },  // Total Contribution
+        { wch: 15 }   // Remark
+      ];
+      worksheet['!cols'] = colWidths;
+
+      xlsx.utils.book_append_sheet(workbook, worksheet, 'ESI Report');
+      xlsx.writeFile(workbook, filePath);
+    } else {
+      let textContent = '';
+      if (esiData.length > 0) {
+        textContent += Object.keys(esiData[0]).join('\t') + '\n';
+        esiData.forEach(row => {
+          textContent += Object.values(row).join('\t') + '\n';
+        });
+      }
+      fs.writeFileSync(filePath, textContent);
+    }
+
+    return { filename, path: filePath };
+  } catch (error) {
+    console.error('Error generating ESI report:', error);
+    throw error;
+  }
+};
+
+// Generate Bank report (IOB or Non-IOB) for a specific month/year
+exports.generateBankReport = async (companyId, month, year, type, format) => {
+  try {
+    const key = `${month}_${year}`;
+    const query = { company: new mongoose.Types.ObjectId(companyId), [`payrun_details.${key}`]: { $exists: true } };
+    const employees = await Employee.find(query);
+
+    if (employees.length === 0) {
+      throw new Error('No payrun data found for the selected month and year');
+    }
+
+    // Filter employees based on bank type
+    const filteredEmployees = employees.filter(emp => {
+      const ifsc = (emp.ifsc_code || '').toUpperCase();
+      const isIOB = ifsc.startsWith('IOBA');
+      return type === 'iob' ? isIOB : !isIOB;
+    });
+
+    if (filteredEmployees.length === 0) {
+      throw new Error(`No ${type === 'iob' ? 'IOB' : 'Non-IOB'} bank records found`);
+    }
+
+    const reportData = filteredEmployees.map((emp, index) => {
+      const payrun = emp.payrun_details.get(key);
+      const amount = (payrun.finalNetpay || payrun.netEarning || 0).toFixed(2);
+
+      if (type === 'iob') {
+        return {
+          's no': index + 1,
+          'id no': emp.emp_id_no || '',
+          'IFSC Code': emp.ifsc_code || '',
+          'Account Type': emp.account_type || 'Savings',
+          'Account Number': emp.account_number || '',
+          'Name of the Beneficiary': emp.name || '',
+          'Address of the Beneficiary': emp.communication_address || emp.permanent_address || '',
+          'Sender Information': 'Levivaan Solutions Private Limited',
+          'Amount': amount
+        };
+      }
+
+      return {
+        'SL NO': index + 1,
+        'BENEFICIARY NAME': emp.name,
+        'BENEFICIARY ACCOUNT NUMBER': emp.account_number || '',
+        'AMOUNT': amount,
+        'IFSC CODE': emp.ifsc_code || '',
+        'BANK NAME': emp.bank_name || '',
+        'REMARKS': `SALARY ${month.toUpperCase()} ${year}`
+      };
+    });
+
+    const filename = `${type.toUpperCase()}_Report_${month}_${year}_${Date.now()}.${format}`;
+    const filePath = path.join(__dirname, '..', 'uploads', filename);
+    const uploadsDir = path.join(__dirname, '..', 'uploads');
+    if (!fs.existsSync(uploadsDir)) fs.mkdirSync(uploadsDir, { recursive: true });
+
+    if (format === 'xlsx') {
+      const workbook = xlsx.utils.book_new();
+      const worksheet = xlsx.utils.json_to_sheet(reportData);
+
+      // Define column widths based on report type
+      let colWidths;
+      if (type === 'iob') {
+        colWidths = [
+          { wch: 6 },   // s no
+          { wch: 12 },  // id no
+          { wch: 15 },  // IFSC Code
+          { wch: 15 },  // Account Type
+          { wch: 25 },  // Account Number
+          { wch: 30 },  // Name of the Beneficiary
+          { wch: 40 },  // Address of the Beneficiary
+          { wch: 35 },  // Sender Information
+          { wch: 15 }   // Amount
+        ];
+      } else {
+        colWidths = [
+          { wch: 8 },   // SL NO
+          { wch: 30 },  // BENEFICIARY NAME
+          { wch: 25 },  // ACCOUNT NUMBER
+          { wch: 15 },  // AMOUNT
+          { wch: 15 },  // IFSC CODE
+          { wch: 20 },  // BANK NAME
+          { wch: 30 }   // REMARKS
+        ];
+      }
+      worksheet['!cols'] = colWidths;
+
+      xlsx.utils.book_append_sheet(workbook, worksheet, 'Bank Report');
+      xlsx.writeFile(workbook, filePath);
+    } else {
+      // TEXT format (Tab separated is safest for bank uploads)
+      let textContent = '';
+      if (reportData.length > 0) {
+        // Headers
+        textContent += Object.keys(reportData[0]).join('\t') + '\n';
+        // Rows
+        reportData.forEach(row => {
+          textContent += Object.values(row).join('\t') + '\n';
+        });
+      }
+      fs.writeFileSync(filePath, textContent);
+    }
+
+    return { filename, path: filePath };
+  } catch (error) {
+    console.error('Error generating bank report:', error);
+    throw error;
+  }
+};
