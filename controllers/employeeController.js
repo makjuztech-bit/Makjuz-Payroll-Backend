@@ -15,7 +15,8 @@ exports.getAllEmployees = async (req, res) => {
 // Get employee by ID
 exports.getEmployeeById = async (req, res) => {
   try {
-    const employee = await employeeService.getEmployeeById(req.params.id);
+    const maskPII = !['admin', 'hr', 'superadmin'].includes(req.user?.role);
+    const employee = await employeeService.getEmployeeById(req.params.id, maskPII);
     if (!employee) {
       return res.status(404).json({ message: 'Employee not found' });
     }
@@ -167,6 +168,13 @@ exports.getEmployeePayrunDetails = async (req, res) => {
   try {
     const { id } = req.params;
     const { month, year } = req.query;
+
+    // Security: Only Admin/HR/Manager can view detailed pay info
+    const allowedRoles = ['admin', 'hr', 'manager', 'superadmin'];
+    if (!allowedRoles.includes(req.user?.role)) {
+      return res.status(403).json({ message: 'Access denied to payrun details' });
+    }
+
     const payrunDetails = await employeeService.getEmployeePayrunDetails(id, month, year);
 
     if (!payrunDetails) {

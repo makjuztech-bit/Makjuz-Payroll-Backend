@@ -57,6 +57,16 @@ exports.getPayrunSummary = async (req, res) => {
     }
 
     const summary = await payrunService.getPayrunSummary(companyId, month, year);
+
+    // Mask financial data for non-privileged users
+    const isPrivileged = ['admin', 'hr', 'superadmin', 'manager'].includes(req.user?.role);
+    if (!isPrivileged) {
+      summary.totalSalary = 0;
+      summary.totalBillable = 0;
+      summary.totalGST = 0;
+      summary.totalGrandTotal = 0;
+    }
+
     res.status(200).json(summary);
   } catch (error) {
     console.error('Error getting payrun summary:', error);

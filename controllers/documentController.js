@@ -30,6 +30,13 @@ const documentController = {
 
   getDocuments: async (req, res) => {
     try {
+      // Security: Only allow HR/Admin/Manager to view documents
+      // (TODO: Implement 'read:own' logic when User->Employee linking is established)
+      const allowedRoles = ['hr', 'manager', 'admin', 'superadmin'];
+      if (!allowedRoles.includes(req.user?.role)) {
+        return res.status(403).json({ message: 'Access denied to documents' });
+      }
+
       const { employeeId } = req.params;
       const documents = await documentService.getEmployeeDocuments(employeeId);
       res.json(documents);
@@ -95,6 +102,12 @@ const documentController = {
           message: 'Invalid employeeIds provided',
           received: req.body
         });
+      }
+
+      // Security: Only allow HR/Admin/Manager to view documents batch
+      const allowedRoles = ['hr', 'manager', 'admin', 'superadmin'];
+      if (!allowedRoles.includes(req.user?.role)) {
+        return res.status(403).json({ message: 'Access denied to documents' });
       }
 
       const documents = await documentService.getDocumentsByEmployeeIds(employeeIds);

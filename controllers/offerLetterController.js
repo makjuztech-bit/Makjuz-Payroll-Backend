@@ -6,8 +6,16 @@ const Candidate = require('../models/Candidate');
 // Get all candidates
 exports.getCandidates = async (req, res) => {
     try {
+        const isAdminOrHr = ['admin', 'hr', 'superadmin'].includes(req.user?.role);
+
         // Filter by company if needed, for now all
-        const candidates = await Candidate.find().sort({ createdAt: -1 });
+        let query = Candidate.find().sort({ createdAt: -1 });
+
+        if (!isAdminOrHr) {
+            query = query.select('-salary');
+        }
+
+        const candidates = await query;
         res.status(200).json(candidates);
     } catch (error) {
         console.error('Error fetching candidates:', error);

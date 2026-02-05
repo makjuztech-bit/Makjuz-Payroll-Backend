@@ -47,6 +47,14 @@ exports.findEmployeeByIdFormat = async (idFormat) => {
       employee = await Employee.findOne({ emp_id_no: regex }).maxTimeMS(5000);
     }
 
+    if (employee) {
+      employee = employee.toObject();
+      delete employee.adhar_number;
+      delete employee.pan_number;
+      delete employee.account_number;
+      delete employee.permanent_address;
+    }
+
     return employee;
   } catch (error) {
     console.error('Error in findEmployeeByIdFormat:', error);
@@ -55,8 +63,12 @@ exports.findEmployeeByIdFormat = async (idFormat) => {
 };
 
 // Fetch employee by ID
-exports.getEmployeeById = async (id) => {
-  return await Employee.findById(id).populate('company');
+exports.getEmployeeById = async (id, maskPII = true) => {
+  const query = Employee.findById(id).populate('company');
+  if (maskPII) {
+    query.select('-adhar_number -pan_number -account_number -permanent_address');
+  }
+  return await query;
 };
 
 // Create a new employee
