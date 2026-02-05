@@ -26,120 +26,79 @@ exports.getEmployeeById = async (req, res) => {
   }
 };
 
-// Create new employee
+const { filterFields, getAllowedFields } = require('../utils/fieldFilter');
+const { sanitizeString } = require('../middleware/sanitization');
+
 // Create new employee
 exports.createEmployee = async (req, res) => {
   try {
-    // Convert camelCase to snake_case for MongoDB, but keep schema field names as-is
+    const role = req.user?.role || 'user';
+    const allowedFields = getAllowedFields(role, 'create');
+    const filteredData = filterFields(req.body, allowedFields);
+
+    // Map frontend keys to schema keys
     const employeeData = {
       emp_id_no: req.body.empIdNo || `TEMP-${Date.now()}-${Math.floor(Math.random() * 1000)}`,
-      name: req.body.name || 'Unknown Employee',
-      date_of_joining: req.body.dateOfJoining,
-      department: req.body.department,
-      designation: req.body.designation,
-      gender: req.body.gender,
-      fixed_stipend: req.body.fixedStipend,
-      father_name: req.body.fatherName,
-      permanent_address: req.body.permanentAddress,
-      communication_address: req.body.communicationAddress,
-      contact_number: req.body.contactNumber,
-      emergency_contact_number: req.body.emergencyContactNumber,
-      qualification: req.body.qualification,
-      qualification_trade: req.body.qualificationTrade,
-      blood_group: req.body.bloodGroup,
-      adhar_number: req.body.adharNumber,
-      pan_number: req.body.panNumber,
-      bank_name: req.body.bankName,
-      account_number: req.body.accountNumber,
-      ifsc_code: req.body.ifscCode,
-      branch: req.body.branch,
-      photo: req.body.photo,
-      experience: req.body.experience,
-      company: req.body.company,
-      uan: req.body.uan,
-      esi_number: req.body.esiNumber,
-      insurance_number: req.body.insuranceNumber,
-      category: req.body.category,
-      status: req.body.status || 'Active',
-      // FIXED: Use exact schema field names
-      DOB: req.body.dateOfBirth,
-      salaryType: req.body.salaryType,
-      employeeCategory: req.body.employeeCategory,
-      // Optional fields with defaults
-      location: req.body.location,
+      name: sanitizeString(filteredData.name || 'Unknown Employee', 100),
+      date_of_joining: filteredData.date_of_joining || req.body.dateOfJoining,
+      department: filteredData.department,
+      designation: filteredData.designation,
+      gender: filteredData.gender,
+      fixed_stipend: filteredData.fixed_stipend || req.body.fixedStipend,
+      father_name: filteredData.father_name || req.body.fatherName,
+      permanent_address: filteredData.permanent_address || req.body.permanentAddress,
+      communication_address: filteredData.communication_address || req.body.communicationAddress,
+      contact_number: filteredData.contact_number || req.body.contactNumber,
+      emergency_contact_number: filteredData.emergency_contact_number || req.body.emergencyContactNumber,
+      qualification: filteredData.qualification,
+      qualification_trade: filteredData.qualification_trade || req.body.qualificationTrade,
+      blood_group: filteredData.blood_group || req.body.bloodGroup,
+      adhar_number: filteredData.adhar_number || req.body.adharNumber,
+      pan_number: filteredData.pan_number || req.body.panNumber,
+      bank_name: filteredData.bank_name || req.body.bankName,
+      account_number: filteredData.account_number || req.body.accountNumber,
+      ifsc_code: filteredData.ifsc_code || req.body.ifscCode,
+      branch: filteredData.branch,
+      photo: filteredData.photo,
+      experience: filteredData.experience,
+      company: filteredData.company || req.body.company,
+      uan: filteredData.uan,
+      esi_number: filteredData.esi_number || req.body.esiNumber,
+      insurance_number: filteredData.insurance_number || req.body.insuranceNumber,
+      category: filteredData.category,
+      status: filteredData.status || req.body.status || 'Active',
+      DOB: filteredData.DOB || req.body.dateOfBirth,
+      salaryType: filteredData.salaryType || req.body.salaryType,
+      employeeCategory: filteredData.employeeCategory || req.body.employeeCategory,
+      location: filteredData.location,
       present_days: req.body.presentDays || 0,
       total_fixed_days: req.body.totalFixedDays || 0,
       holidays: req.body.holidays || 0,
       ot_hours: req.body.otHours || 0,
       total_deductions: req.body.totalDeductions || 0,
       final_netpay: req.body.finalNetpay || 0,
-      // Payrun details if provided
-      payrun_details: req.body.payrunDetails || {}
+      payrun_details: filteredData.payrun_details || req.body.payrunDetails || {}
     };
 
     const newEmployee = await employeeService.createEmployee(employeeData);
-
-    // Return with camelCase field names for frontend
-    res.status(201).json({
-      id: newEmployee._id,
-      empIdNo: newEmployee.emp_id_no,
-      name: newEmployee.name,
-      dateOfJoining: newEmployee.date_of_joining,
-      department: newEmployee.department,
-      designation: newEmployee.designation,
-      gender: newEmployee.gender,
-      fixedStipend: newEmployee.fixed_stipend,
-      fatherName: newEmployee.father_name,
-      permanentAddress: newEmployee.permanent_address,
-      communicationAddress: newEmployee.communication_address,
-      contactNumber: newEmployee.contact_number,
-      emergencyContactNumber: newEmployee.emergency_contact_number,
-      qualification: newEmployee.qualification,
-      qualificationTrade: newEmployee.qualification_trade,
-      bloodGroup: newEmployee.blood_group,
-      adharNumber: newEmployee.adhar_number,
-      panNumber: newEmployee.pan_number,
-      bankName: newEmployee.bank_name,
-      accountNumber: newEmployee.account_number,
-      ifscCode: newEmployee.ifsc_code,
-      branch: newEmployee.branch,
-      photo: newEmployee.photo,
-      experience: newEmployee.experience,
-      company: newEmployee.company,
-      uan: newEmployee.uan,
-      esiNumber: newEmployee.esi_number,
-      insuranceNumber: newEmployee.insurance_number,
-      category: newEmployee.category,
-      status: newEmployee.status,
-      // FIXED: Use exact schema field names in response
-      dateOfBirth: newEmployee.DOB,
-      salaryType: newEmployee.salaryType,
-      employeeCategory: newEmployee.employeeCategory,
-      location: newEmployee.location,
-      presentDays: newEmployee.present_days,
-      totalFixedDays: newEmployee.total_fixed_days,
-      holidays: newEmployee.holidays,
-      otHours: newEmployee.ot_hours,
-      totalDeductions: newEmployee.total_deductions,
-      finalNetpay: newEmployee.final_netpay,
-      payrunDetails: newEmployee.payrun_details
-    });
+    res.status(201).json(newEmployee);
   } catch (error) {
     console.error('Error creating employee:', error);
     if (error.code === 11000) {
-      // MongoDB duplicate key error
       return res.status(400).json({ message: 'Employee ID already exists' });
     }
-    res.status(500).json({
-      message: 'Server Error',
-      details: error.message
-    });
+    res.status(500).json({ message: 'Server Error', details: error.message });
   }
 };
+
 // Update employee
 exports.updateEmployee = async (req, res) => {
   try {
-    const updatedEmployee = await employeeService.updateEmployee(req.params.id, req.body);
+    const role = req.user?.role || 'user';
+    const allowedFields = getAllowedFields(role, 'update');
+    const filteredData = filterFields(req.body, allowedFields);
+
+    const updatedEmployee = await employeeService.updateEmployee(req.params.id, filteredData);
     if (!updatedEmployee) {
       return res.status(404).json({ message: 'Employee not found' });
     }

@@ -1,9 +1,16 @@
 const express = require('express');
 const cors = require('cors');
-require('dotenv').config();
-const connectDB = require('./db');
+const helmet = require('helmet');
+const cookieParser = require('cookie-parser');
+const mongoSanitize = require('express-mongo-sanitize');
 const path = require('path');
 const fs = require('fs');
+require('dotenv').config();
+
+const connectDB = require('./db');
+const logger = require('./utils/logger');
+const { apiLimiter, speedLimiter } = require('./middleware/rateLimiter');
+const { sanitizeInput } = require('./middleware/sanitization');
 
 const app = express();
 const PORT = process.env.PORT || 3000;
@@ -11,34 +18,54 @@ const PORT = process.env.PORT || 3000;
 // Connect to MongoDB
 connectDB();
 
-// Middleware
-app.use(express.json({ limit: '50mb' }));
-app.use(express.urlencoded({ limit: '50mb', extended: true }));
+// 1. Security Headers
+app.use(helmet({
+  contentSecurityPolicy: {
+    directives: {
+      defaultSrc: ["'self'"],
+      styleSrc: ["'self'", "'unsafe-inline'", "https://fonts.googleapis.com"],
+      imgSrc: ["'self'", "data:", "https:"],
+      connectSrc: ["'self'", process.env.FRONTEND_URL || 'http://localhost:5173']
+    }
+  }
+}));
 
-// CORS setup
+// 2. CORS setup
+const allowedOrigins = process.env.ALLOWED_ORIGINS
+  ? process.env.ALLOWED_ORIGINS.split(',')
+  : ['http://localhost:5173', 'http://localhost:3000'];
+
 app.use(cors({
-  origin: process.env.FRONTEND_URL ? [process.env.FRONTEND_URL, 'http://localhost:5173', 'http://localhost:3000'] : '*',
+  origin: (origin, callback) => {
+    if (!origin || allowedOrigins.includes(origin)) {
+      callback(null, true);
+    } else {
+      callback(new Error('Not allowed by CORS'));
+    }
+  },
   methods: ['GET', 'POST', 'PUT', 'DELETE', 'PATCH', 'OPTIONS'],
   credentials: true
 }));
+
+// 3. Payload Limits & Parsing
+app.use(express.json({ limit: '1mb' }));
+app.use(express.urlencoded({ limit: '1mb', extended: true }));
+app.use(cookieParser());
+
+// 4. Sanitization
+app.use(mongoSanitize());
+app.use(sanitizeInput);
+
+// 5. Rate Limiting
+app.use('/api/', speedLimiter);
+app.use('/api/', apiLimiter);
 
 // Ensure uploads directory exists
 const uploadsDir = path.join(__dirname, 'uploads');
 if (!fs.existsSync(uploadsDir)) {
   fs.mkdirSync(uploadsDir, { recursive: true });
 }
-
-// Make uploads folder publicly accessible
 app.use('/uploads', express.static(uploadsDir));
-
-// Create templates directory if it doesn't exist
-const templatesDir = path.join(__dirname, 'templates');
-if (!fs.existsSync(templatesDir)) {
-  fs.mkdirSync(templatesDir, { recursive: true });
-}
-
-// Publicly serve templates (optional)
-app.use('/templates', express.static(templatesDir));
 
 // Routes
 const userRoutes = require('./routes/userRoutes');
@@ -69,48 +96,25 @@ app.use('/api/expenses', auth, expenseRoutes);
 app.use('/api/incomes', auth, incomeRoutes);
 app.use('/api/ai', aiRoutes);
 
-// Serve static files from the React frontend app
+// Production Static Files
 if (process.env.NODE_ENV === 'production') {
-  const frontendBuildPath = path.join(__dirname, 'public');
-  console.log('Serving production frontend from:', frontendBuildPath);
-  if (fs.existsSync(frontendBuildPath)) {
-    console.log('Frontend build directory contents:', fs.readdirSync(frontendBuildPath));
-  } else {
-    console.error('CRITICAL: Frontend build directory not found at:', frontendBuildPath);
-  }
+  const frontendBuildPath = path.join(__dirname, '..', 'Makjuz-payroll', 'dist');
   app.use(express.static(frontendBuildPath));
-
-  // Any route that doesn't match an API route or static file should serve the frontend index.html
   app.get('*', (req, res, next) => {
-    // Skip if it's an API route
-    if (req.path.startsWith('/api/') || req.path.startsWith('/uploads/') || req.path.startsWith('/templates/')) {
-      return next();
-    }
-    const indexPath = path.join(frontendBuildPath, 'index.html');
-    if (fs.existsSync(indexPath)) {
-      res.sendFile(indexPath);
-    } else {
-      console.error('index.html not found at:', indexPath);
-      res.status(404).send('Frontend application index.html not found. Please check build logs.');
-    }
-  });
-} else {
-  // Root route for development
-  app.get('/', (req, res) => {
-    res.send('Welcome to the Levivaan Server! (Development Mode)');
+    if (req.path.startsWith('/api/') || req.path.startsWith('/uploads/')) return next();
+    res.sendFile(path.join(frontendBuildPath, 'index.html'));
   });
 }
 
-// Error handling middleware
+// Global Error Handler
 app.use((err, req, res, next) => {
-  console.error('Error:', err.stack);
-  res.status(500).json({
+  logger.error(`${req.method} ${req.path} - Error: ${err.message}`, { stack: err.stack });
+  res.status(err.status || 500).json({
     message: 'Something went wrong!',
     error: process.env.NODE_ENV === 'development' ? err.message : undefined
   });
 });
 
-// Start Server
 app.listen(PORT, () => {
-  console.log(`Server running at http://localhost:${PORT}`);
+  logger.info(`Server running at http://localhost:${PORT}`);
 });

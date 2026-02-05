@@ -25,22 +25,30 @@ exports.getAllEmployees = async (companyId, status) => {
   }
 };
 
+const { validateRegexPattern, sanitizeString } = require('../middleware/sanitization');
+
 // Find employee by ID format
 exports.findEmployeeByIdFormat = async (idFormat) => {
   try {
-    // Try exact match
-    let employee = await Employee.findOne({ emp_id_no: idFormat });
+    const sanitizedFormat = sanitizeString(idFormat, 50);
+    if (!sanitizedFormat) return null;
+
+    // Validate pattern (throws on invalid)
+    const safePattern = validateRegexPattern(sanitizedFormat);
+
+    // Try exact match first (Performance & Security)
+    let employee = await Employee.findOne({ emp_id_no: sanitizedFormat });
 
     // Try case-insensitive match if not found
     if (!employee) {
-      const regex = new RegExp(`^${idFormat}$`, 'i');
-      employee = await Employee.findOne({ emp_id_no: regex });
+      const regex = new RegExp(`^${safePattern}$`, 'i');
+      employee = await Employee.findOne({ emp_id_no: regex }).maxTimeMS(5000);
     }
 
     return employee;
   } catch (error) {
     console.error('Error in findEmployeeByIdFormat:', error);
-    throw error;
+    throw new Error('Invalid search pattern');
   }
 };
 

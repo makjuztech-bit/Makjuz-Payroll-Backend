@@ -1,67 +1,71 @@
-const bcrypt = require('bcryptjs');
+const argon2 = require('argon2');
 const jwt = require('jsonwebtoken');
 const User = require('../models/User');
-const userService = require('../services/userService');
+const logger = require('../utils/logger');
+const { sanitizeString } = require('../middleware/sanitization');
 
-exports.getAllUsers = async (req, res) => {
-  const users = await userService.getAllUsers();
-  res.json(users);
-};
+const JWT_SECRET = process.env.JWT_SECRET;
+const JWT_REFRESH_SECRET = process.env.JWT_REFRESH_SECRET;
+const NODE_ENV = process.env.NODE_ENV || 'development';
 
-exports.createUser = async (req, res) => {
-  const user = await userService.createUser(req.body);
-  res.status(201).json(user);
-};
+// Cookie options
+const getCookieOptions = (maxAge) => ({
+  httpOnly: true,
+  secure: NODE_ENV === 'production',
+  sameSite: 'strict',
+  maxAge,
+  path: '/'
+});
 
 exports.register = async (req, res) => {
   try {
     const { username, password, email } = req.body;
 
+    if (!username || !password || !email) {
+      return res.status(400).json({ message: 'All fields are required' });
+    }
+
     // Check if user already exists
-    const existingUser = await User.findOne({ username });
+    const existingUser = await User.findOne({ $or: [{ username }, { email }] });
     if (existingUser) {
-      return res.status(400).json({ message: 'Username already exists' });
+      return res.status(400).json({ message: 'Username or email already exists' });
     }
 
-    // Check if email already exists
-    const existingEmail = await User.findOne({ email });
-    if (existingEmail) {
-      return res.status(400).json({ message: 'Email already exists' });
-    }
-
-    // Hash password
-    const hashedPassword = await bcrypt.hash(password, 10);
+    // Hash password with Argon2
+    const hashedPassword = await argon2.hash(password);
 
     // Create user
     const user = new User({
-      username,
+      username: sanitizeString(username),
       password: hashedPassword,
-      email
+      email: email.toLowerCase()
     });
 
     await user.save();
 
-    // Generate token
+    // Generate tokens
     const token = jwt.sign(
-      { id: user._id, username: user.username },
-      process.env.JWT_SECRET || 'your-secret-key',
+      { id: user._id, username: user.username, role: user.role },
+      JWT_SECRET,
       { expiresIn: '24h' }
     );
 
+    const refreshToken = jwt.sign(
+      { id: user._id },
+      JWT_REFRESH_SECRET,
+      { expiresIn: '7d' }
+    );
+
+    // Set cookies
+    res.cookie('token', token, getCookieOptions(24 * 60 * 60 * 1000));
+    res.cookie('refreshToken', refreshToken, getCookieOptions(7 * 24 * 60 * 60 * 1000));
+
     res.status(201).json({
-      token,
-      user: {
-        id: user._id,
-        username: user.username,
-        email: user.email
-      }
+      message: 'User registered successfully',
+      user: user.toJSON()
     });
   } catch (error) {
-    console.error('Registration error:', error);
-    if (error.code === 11000) {
-      // MongoDB duplicate key error
-      return res.status(400).json({ message: 'Username or email already exists' });
-    }
+    logger.error('Registration error:', error);
     res.status(500).json({ message: 'Error registering user' });
   }
 };
@@ -70,37 +74,61 @@ exports.login = async (req, res) => {
   try {
     const { username, password } = req.body;
 
-    // Find user
-    const user = await User.findOne({ username });
+    // Find user and include password
+    const user = await User.findOne({ username }).select('+password');
     if (!user) {
       return res.status(401).json({ message: 'Invalid credentials' });
     }
 
-    // Check password
-    const isValidPassword = await bcrypt.compare(password, user.password);
+    // Check if locked
+    if (user.isLocked) {
+      return res.status(423).json({
+        message: 'Account is locked. Try again later.',
+        lockUntil: user.lockUntil
+      });
+    }
+
+    // Verify password
+    const isValidPassword = await argon2.verify(user.password, password);
     if (!isValidPassword) {
+      await user.incLoginAttempts();
       return res.status(401).json({ message: 'Invalid credentials' });
     }
 
-    // Generate token
+    // Reset login attempts
+    await user.resetLoginAttempts();
+
+    // Generate tokens
     const token = jwt.sign(
-      { id: user._id, username: user.username },
-      process.env.JWT_SECRET || 'your-secret-key',
+      { id: user._id, username: user.username, role: user.role },
+      JWT_SECRET,
       { expiresIn: '24h' }
     );
 
+    const refreshToken = jwt.sign(
+      { id: user._id },
+      JWT_REFRESH_SECRET,
+      { expiresIn: '7d' }
+    );
+
+    // Set cookies
+    res.cookie('token', token, getCookieOptions(24 * 60 * 60 * 1000));
+    res.cookie('refreshToken', refreshToken, getCookieOptions(7 * 24 * 60 * 60 * 1000));
+
     res.json({
-      token,
-      user: {
-        id: user._id,
-        username: user.username,
-        email: user.email
-      }
+      message: 'Login successful',
+      user: user.toJSON()
     });
   } catch (error) {
-    console.error('Login error:', error);
+    logger.error('Login error:', error);
     res.status(500).json({ message: 'Error logging in' });
   }
+};
+
+exports.logout = async (req, res) => {
+  res.clearCookie('token', { path: '/' });
+  res.clearCookie('refreshToken', { path: '/' });
+  res.json({ message: 'Logged out successfully' });
 };
 
 exports.getMe = async (req, res) => {
