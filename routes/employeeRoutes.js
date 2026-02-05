@@ -1,20 +1,23 @@
 const express = require('express');
 const router = express.Router();
-
-// Import employeeController
 const employeeController = require('../controllers/employeeController');
+const { authorize } = require('../middleware/rbac');
 
-// Routes
-router.get('/', employeeController.getAllEmployees); // This will handle ?companyId query param
-router.get('/count', employeeController.getEmployeeCount); // New route for employee count
-router.get('/find-by-id', employeeController.findEmployeeById); // New route to help debug ID formats
-router.get('/:id', employeeController.getEmployeeById);
-router.get('/:id/payrun', employeeController.getEmployeePayrunDetails); // Add the new payrun route
-router.get('/:id/payslip', employeeController.getEmployeePayslip); // Route for generating payslip
-router.put('/:id/payrun', employeeController.updatePayrunDetails); // Add PUT endpoint for updating payrun details
-router.post('/', employeeController.createEmployee);
-router.put('/:id', employeeController.updateEmployee);
-router.delete('/delete-all', employeeController.deleteAllEmployees); // Delete all employees
-router.delete('/:id', employeeController.deleteEmployee);
+// READ routes (Shared access for HR, Manager, Admin)
+router.get('/', authorize('hr', 'manager', 'admin', 'superadmin'), employeeController.getAllEmployees);
+router.get('/count', authorize('hr', 'manager', 'admin', 'superadmin'), employeeController.getEmployeeCount);
+router.get('/find-by-id', authorize('hr', 'manager', 'admin', 'superadmin'), employeeController.findEmployeeById);
+router.get('/:id', authorize('hr', 'manager', 'admin', 'superadmin'), employeeController.getEmployeeById);
+router.get('/:id/payrun', authorize('hr', 'manager', 'admin', 'superadmin'), employeeController.getEmployeePayrunDetails);
+
+// WRITE routes (Restricted to HR and Admin)
+router.post('/', authorize('hr', 'admin', 'superadmin'), employeeController.createEmployee);
+router.put('/:id', authorize('hr', 'admin', 'superadmin'), employeeController.updateEmployee);
+router.put('/:id/payrun', authorize('hr', 'admin', 'superadmin'), employeeController.updatePayrunDetails);
+router.get('/:id/payslip', authorize('hr', 'admin', 'superadmin'), employeeController.getEmployeePayslip);
+
+// CRITICAL routes (Admin only)
+router.delete('/delete-all', authorize('admin', 'superadmin'), employeeController.deleteAllEmployees);
+router.delete('/:id', authorize('admin', 'superadmin'), employeeController.deleteEmployee);
 
 module.exports = router;

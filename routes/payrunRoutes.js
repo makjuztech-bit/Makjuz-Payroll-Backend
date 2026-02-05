@@ -2,33 +2,25 @@ const express = require('express');
 const router = express.Router();
 const payrunController = require('../controllers/payrunController');
 const { upload } = require('../middleware/uploadMiddleware');
+const { authorize } = require('../middleware/rbac');
 
-// Route for uploading and processing an Excel file
+// Payruns are restricted to HR and Admin roles only due to sensitive salary information.
+router.use(authorize('hr', 'admin', 'superadmin'));
+
+// Uploading
 router.post('/upload', upload.single('payrunFile'), payrunController.uploadPayrunExcel);
 
-// Route for getting payrun summary
+// Summary & Template
 router.get('/summary', payrunController.getPayrunSummary);
-
-// Route for generating and downloading paysheet
-router.get('/paysheet', payrunController.downloadPaysheet);
-
-// Routes for downloading PF and ESI reports
-router.get('/pf-report', payrunController.downloadPFReport);
-router.get('/esi-report', payrunController.downloadESIReport);
-
-// Route for downloading a template
 router.get('/template', payrunController.getPayrunTemplate);
-
-// Template Routes
 router.post('/template/upload', upload.single('templateFile'), payrunController.uploadPayslipTemplate);
 
-// Word Payslip
+// Multi-format Reports (PDF/Excel/Word/TXT)
+router.get('/paysheet', payrunController.downloadPaysheet);
+router.get('/pf-report', payrunController.downloadPFReport);
+router.get('/esi-report', payrunController.downloadESIReport);
 router.get('/payslip/word', payrunController.downloadWordPayslip);
-
-// Invoice
 router.get('/invoice', payrunController.downloadInvoice);
-
-// Bank Report
 router.get('/bank-report', payrunController.downloadBankReport);
 
 module.exports = router;

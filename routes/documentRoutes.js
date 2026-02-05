@@ -1,10 +1,10 @@
 const express = require('express');
 const router = express.Router();
 const documentController = require('../controllers/documentController');
-const auth = require('../middleware/auth');
+const { authorize } = require('../middleware/rbac');
 
-// Protect all routes with authentication
-router.use(auth);
+// Documents are restricted to HR and Admin
+router.use(authorize('hr', 'admin', 'superadmin'));
 
 // Batch get documents (POST to send array of IDs)
 router.post('/batch', documentController.getDocumentsBatch);

@@ -1,25 +1,19 @@
-
 const express = require('express');
 const router = express.Router();
 const offerLetterController = require('../controllers/offerLetterController');
-const auth = require('../middleware/auth');
+const { authorize } = require('../middleware/rbac');
 
-// Get all
-router.get('/', auth, offerLetterController.getCandidates);
+// Offer letters are managed exclusively by HR or Admin
+router.use(authorize('hr', 'admin', 'superadmin'));
 
-// Add single
-router.post('/', auth, offerLetterController.addCandidate);
+// Candidates Management
+router.get('/', offerLetterController.getCandidates);
+router.post('/', offerLetterController.addCandidate);
+router.post('/bulk', offerLetterController.addCandidatesBulk);
+router.delete('/:id', offerLetterController.deleteCandidate);
 
-// Bulk add
-router.post('/bulk', auth, offerLetterController.addCandidatesBulk);
-
-// Delete
-router.delete('/:id', auth, offerLetterController.deleteCandidate);
-
-// Send batch emails
-router.post('/send-batch', auth, offerLetterController.sendBatchOfferLetters);
-
-// Download PDF
-router.post('/download', auth, offerLetterController.downloadOfferLetter);
+// Generation & Sending
+router.post('/send-batch', offerLetterController.sendBatchOfferLetters);
+router.post('/download', offerLetterController.downloadOfferLetter);
 
 module.exports = router;
