@@ -61,7 +61,8 @@ exports.register = async (req, res) => {
     const user = new User({
       username: username.trim(),
       password: hashedPassword,
-      email: email.toLowerCase().trim()
+      email: email.toLowerCase().trim(),
+      role: 'admin' // Fixed: Default to admin so new users can access the dashboard/routes
     });
 
     try {

@@ -3,12 +3,12 @@ const router = express.Router();
 const employeeController = require('../controllers/employeeController');
 const { authorize } = require('../middleware/rbac');
 
-// READ routes (Shared access for HR, Manager, Admin)
-router.get('/', authorize('hr', 'manager', 'admin', 'superadmin'), employeeController.getAllEmployees);
-router.get('/count', authorize('hr', 'manager', 'admin', 'superadmin'), employeeController.getEmployeeCount);
-router.get('/find-by-id', authorize('hr', 'manager', 'admin', 'superadmin'), employeeController.findEmployeeById);
-router.get('/:id', authorize('hr', 'manager', 'admin', 'superadmin'), employeeController.getEmployeeById);
-router.get('/:id/payrun', authorize('hr', 'manager', 'admin', 'superadmin'), employeeController.getEmployeePayrunDetails);
+// READ routes (Shared access for User, HR, Manager, Admin)
+router.get('/', authorize('user', 'hr', 'manager', 'admin', 'superadmin'), employeeController.getAllEmployees);
+router.get('/count', authorize('user', 'hr', 'manager', 'admin', 'superadmin'), employeeController.getEmployeeCount);
+router.get('/find-by-id', authorize('user', 'hr', 'manager', 'admin', 'superadmin'), employeeController.findEmployeeById);
+router.get('/:id', authorize('user', 'hr', 'manager', 'admin', 'superadmin'), employeeController.getEmployeeById);
+router.get('/:id/payrun', authorize('user', 'hr', 'manager', 'admin', 'superadmin'), employeeController.getEmployeePayrunDetails);
 
 // WRITE routes (Restricted to HR and Admin)
 router.post('/', authorize('hr', 'admin', 'superadmin'), employeeController.createEmployee);
