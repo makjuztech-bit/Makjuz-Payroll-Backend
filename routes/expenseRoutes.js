@@ -1,12 +1,14 @@
-
 const express = require('express');
 const router = express.Router();
 const expenseController = require('../controllers/expenseController');
-const auth = require('../middleware/auth');
+const { authorize } = require('../middleware/rbac');
 
-router.post('/', auth, expenseController.addExpense);
-router.get('/', auth, expenseController.getExpenses);
-router.get('/:id', auth, expenseController.getExpenseById);
-router.delete('/:id', auth, expenseController.deleteExpense);
+// READ (User, HR, Admin)
+router.get('/', authorize('user', 'hr', 'manager', 'admin', 'superadmin'), expenseController.getExpenses);
+router.get('/:id', authorize('user', 'hr', 'manager', 'admin', 'superadmin'), expenseController.getExpenseById);
+
+// WRITE/DELETE (HR, Admin)
+router.post('/', authorize('hr', 'admin', 'superadmin'), expenseController.addExpense);
+router.delete('/:id', authorize('hr', 'admin', 'superadmin'), expenseController.deleteExpense);
 
 module.exports = router;

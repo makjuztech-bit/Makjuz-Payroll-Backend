@@ -1,11 +1,13 @@
-
 const express = require('express');
 const router = express.Router();
 const incomeController = require('../controllers/incomeController');
-const auth = require('../middleware/auth');
+const { authorize } = require('../middleware/rbac');
 
-router.post('/', auth, incomeController.addIncome);
-router.get('/', auth, incomeController.getIncomes);
-router.delete('/:id', auth, incomeController.deleteIncome);
+// READ (User, HR, Admin)
+router.get('/', authorize('user', 'hr', 'manager', 'admin', 'superadmin'), incomeController.getIncomes);
+
+// WRITE/DELETE (HR, Admin)
+router.post('/', authorize('hr', 'admin', 'superadmin'), incomeController.addIncome);
+router.delete('/:id', authorize('hr', 'admin', 'superadmin'), incomeController.deleteIncome);
 
 module.exports = router;

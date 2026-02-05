@@ -3,17 +3,16 @@ const router = express.Router();
 const offerLetterController = require('../controllers/offerLetterController');
 const { authorize } = require('../middleware/rbac');
 
-// Offer letters are managed exclusively by HR or Admin
-router.use(authorize('hr', 'admin', 'superadmin'));
+// READ (User, HR, Admin)
+router.get('/', authorize('user', 'hr', 'manager', 'admin', 'superadmin'), offerLetterController.getCandidates);
 
-// Candidates Management
-router.get('/', offerLetterController.getCandidates);
-router.post('/', offerLetterController.addCandidate);
-router.post('/bulk', offerLetterController.addCandidatesBulk);
-router.delete('/:id', offerLetterController.deleteCandidate);
+// WRITE/DELETE (Restricted to HR and Admin)
+router.post('/', authorize('hr', 'admin', 'superadmin'), offerLetterController.addCandidate);
+router.post('/bulk', authorize('hr', 'admin', 'superadmin'), offerLetterController.addCandidatesBulk);
+router.delete('/:id', authorize('hr', 'admin', 'superadmin'), offerLetterController.deleteCandidate);
 
-// Generation & Sending
-router.post('/send-batch', offerLetterController.sendBatchOfferLetters);
-router.post('/download', offerLetterController.downloadOfferLetter);
+// Generation & Sending (HR, Admin)
+router.post('/send-batch', authorize('hr', 'admin', 'superadmin'), offerLetterController.sendBatchOfferLetters);
+router.post('/download', authorize('user', 'hr', 'admin', 'superadmin'), offerLetterController.downloadOfferLetter);
 
 module.exports = router;

@@ -4,14 +4,16 @@ const payrunController = require('../controllers/payrunController');
 const { upload } = require('../middleware/uploadMiddleware');
 const { authorize } = require('../middleware/rbac');
 
-// Payruns are restricted to HR and Admin roles only due to sensitive salary information.
+// Public-ish Summary (Shared access for User, HR, Manager, Admin)
+router.get('/summary', authorize('user', 'hr', 'manager', 'admin', 'superadmin'), payrunController.getPayrunSummary);
+
+// Restricted Operations (Restricted to HR and Admin roles)
 router.use(authorize('hr', 'admin', 'superadmin'));
 
 // Uploading
 router.post('/upload', upload.single('payrunFile'), payrunController.uploadPayrunExcel);
 
-// Summary & Template
-router.get('/summary', payrunController.getPayrunSummary);
+// Template
 router.get('/template', payrunController.getPayrunTemplate);
 router.post('/template/upload', upload.single('templateFile'), payrunController.uploadPayslipTemplate);
 

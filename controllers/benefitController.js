@@ -12,7 +12,10 @@ const benefitController = {
 
   getBenefits: async (req, res) => {
     try {
-      const { companyId } = req.params;
+      const companyId = req.params.companyId || req.query.companyId;
+      if (!companyId) {
+        return res.status(400).json({ message: 'Company ID is required' });
+      }
       const benefits = await benefitService.getBenefits(companyId);
       res.json(benefits);
     } catch (error) {
