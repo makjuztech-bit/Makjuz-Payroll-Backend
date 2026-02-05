@@ -69,10 +69,25 @@ app.use('/api/expenses', auth, expenseRoutes);
 app.use('/api/incomes', auth, incomeRoutes);
 app.use('/api/ai', aiRoutes);
 
-// Root route
-app.get('/', (req, res) => {
-  res.send('Welcome to the Levivaan Server!');
-});
+// Serve static files from the React frontend app
+if (process.env.NODE_ENV === 'production') {
+  const frontendBuildPath = path.join(__dirname, '..', 'Makjuz-payroll', 'dist');
+  app.use(express.static(frontendBuildPath));
+
+  // Any route that doesn't match an API route or static file should serve the frontend index.html
+  app.get('*', (req, res, next) => {
+    // Skip if it's an API route
+    if (req.path.startsWith('/api/') || req.path.startsWith('/uploads/') || req.path.startsWith('/templates/')) {
+      return next();
+    }
+    res.sendFile(path.join(frontendBuildPath, 'index.html'));
+  });
+} else {
+  // Root route for development
+  app.get('/', (req, res) => {
+    res.send('Welcome to the Levivaan Server! (Development Mode)');
+  });
+}
 
 // Error handling middleware
 app.use((err, req, res, next) => {
