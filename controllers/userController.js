@@ -2,134 +2,145 @@ const argon2 = require('argon2');
 const jwt = require('jsonwebtoken');
 const User = require('../models/User');
 const logger = require('../utils/logger');
-const { sanitizeString } = require('../middleware/sanitization');
 
-const JWT_SECRET = process.env.JWT_SECRET;
-const JWT_REFRESH_SECRET = process.env.JWT_REFRESH_SECRET;
-const NODE_ENV = process.env.NODE_ENV || 'development';
+// Fetch secrets inside the function to ensure they are loaded after dotenv
+const getSecrets = () => ({
+  jwtSecret: process.env.JWT_SECRET,
+  refreshSecret: process.env.JWT_REFRESH_SECRET
+});
 
 // Cookie options
 const getCookieOptions = (maxAge) => ({
   httpOnly: true,
-  secure: NODE_ENV === 'production',
-  sameSite: NODE_ENV === 'production' ? 'none' : 'lax', // Use 'none' for cross-domain cookies in production
+  secure: process.env.NODE_ENV === 'production',
+  sameSite: process.env.NODE_ENV === 'production' ? 'none' : 'lax',
   maxAge,
   path: '/'
 });
 
 exports.register = async (req, res) => {
+  const { jwtSecret, refreshSecret } = getSecrets();
+
   try {
     const { username, password, email } = req.body;
 
+    // 1. Basic Validation
     if (!username || !password || !email) {
       return res.status(400).json({ message: 'All fields are required' });
     }
 
-    // Check if user already exists
-    const existingUser = await User.findOne({ $or: [{ username: username.trim() }, { email: email.toLowerCase().trim() }] });
+    if (!jwtSecret || !refreshSecret) {
+      console.error('SYSTEM_ERROR: JWT Secrets missing from environment');
+      return res.status(500).json({ message: 'Server configuration error: Missing secrets' });
+    }
+
+    // 2. Existing User Check
+    const existingUser = await User.findOne({
+      $or: [{ username: username.trim() }, { email: email.toLowerCase().trim() }]
+    });
+
     if (existingUser) {
       return res.status(400).json({ message: 'Username or email already exists' });
     }
 
-    // Hash password with Argon2 (with safety catch)
+    // 3. Argon2 Hashing (Optimized for low-RAM containers)
     let hashedPassword;
     try {
       hashedPassword = await argon2.hash(password, {
         type: argon2.argon2id,
-        memoryCost: 2 ** 14, // Lower memory cost for limited environments like Render free tier
-        timeCost: 2
+        memoryCost: 16384, // 16MB
+        timeCost: 2,
+        parallelism: 1
       });
     } catch (hashError) {
-      logger.error('Encryption failed (Argon2):', hashError);
-      return res.status(500).json({ message: 'Security module initialization failed' });
+      console.error('ARGON2_ERROR:', hashError);
+      return res.status(500).json({ message: 'Encryption failed' });
     }
 
-    // Create user
+    // 4. Save User
     const user = new User({
-      username: sanitizeString(username.trim()),
+      username: username.trim(),
       password: hashedPassword,
       email: email.toLowerCase().trim()
     });
 
-    await user.save();
+    try {
+      await user.save();
+    } catch (dbError) {
+      console.error('MONGO_SAVE_ERROR:', dbError);
+      return res.status(400).json({ message: 'Database validation failed', details: dbError.message });
+    }
 
-    // Generate tokens
+    // 5. Token Generation
     const token = jwt.sign(
       { id: user._id, username: user.username, role: user.role },
-      JWT_SECRET,
+      jwtSecret,
       { expiresIn: '24h' }
     );
 
     const refreshToken = jwt.sign(
       { id: user._id },
-      JWT_REFRESH_SECRET,
+      refreshSecret,
       { expiresIn: '7d' }
     );
 
-    // Set cookies
+    // 6. Set Cookies
     res.cookie('token', token, getCookieOptions(24 * 60 * 60 * 1000));
     res.cookie('refreshToken', refreshToken, getCookieOptions(7 * 24 * 60 * 60 * 1000));
 
     res.status(201).json({
       message: 'User registered successfully',
-      user: user.toJSON()
+      user: {
+        id: user._id,
+        username: user.username,
+        email: user.email,
+        role: user.role
+      }
     });
   } catch (error) {
-    logger.error('Registration Exception:', {
-      message: error.message,
-      stack: error.stack,
-      body: { ...req.body, password: '***' }
+    console.error('GLOBAL_REGISTER_ERROR:', error);
+    res.status(500).json({
+      message: 'Critical error during registration',
+      details: error.message
     });
-    res.status(500).json({ message: 'Error registering user', details: error.message });
   }
 };
 
 exports.login = async (req, res) => {
+  const { jwtSecret, refreshSecret } = getSecrets();
+
   try {
     const { username, password } = req.body;
 
-    if (!username || !password) {
-      return res.status(400).json({ message: 'Username and password are required' });
-    }
-
-    // Find user and include password
     const user = await User.findOne({ username: username.trim() }).select('+password');
     if (!user) {
       return res.status(401).json({ message: 'Invalid credentials' });
     }
 
-    // Check if locked
     if (user.isLocked) {
-      return res.status(423).json({
-        message: 'Account is locked due to too many failed attempts. Try again in 2 hours.',
-        lockUntil: user.lockUntil
-      });
+      return res.status(423).json({ message: 'Account locked. Try again later.' });
     }
 
-    // Verify password
     const isValidPassword = await argon2.verify(user.password, password);
     if (!isValidPassword) {
       await user.incLoginAttempts();
       return res.status(401).json({ message: 'Invalid credentials' });
     }
 
-    // Reset login attempts
     await user.resetLoginAttempts();
 
-    // Generate tokens
     const token = jwt.sign(
       { id: user._id, username: user.username, role: user.role },
-      JWT_SECRET,
+      jwtSecret,
       { expiresIn: '24h' }
     );
 
     const refreshToken = jwt.sign(
       { id: user._id },
-      JWT_REFRESH_SECRET,
+      refreshSecret,
       { expiresIn: '7d' }
     );
 
-    // Set cookies
     res.cookie('token', token, getCookieOptions(24 * 60 * 60 * 1000));
     res.cookie('refreshToken', refreshToken, getCookieOptions(7 * 24 * 60 * 60 * 1000));
 
@@ -138,25 +149,23 @@ exports.login = async (req, res) => {
       user: user.toJSON()
     });
   } catch (error) {
-    logger.error('Login Exception:', error);
-    res.status(500).json({ message: 'Error logging in' });
+    console.error('LOGIN_ERROR:', error);
+    res.status(500).json({ message: 'Internal server error during login' });
   }
 };
 
 exports.logout = async (req, res) => {
-  res.clearCookie('token', { path: '/' });
-  res.clearCookie('refreshToken', { path: '/' });
+  res.clearCookie('token', { path: '/', sameSite: 'none', secure: true });
+  res.clearCookie('refreshToken', { path: '/', sameSite: 'none', secure: true });
   res.json({ message: 'Logged out successfully' });
 };
 
 exports.getMe = async (req, res) => {
   try {
     const user = await User.findById(req.user.id);
-    if (!user) {
-      return res.status(404).json({ message: 'User not found' });
-    }
+    if (!user) return res.status(404).json({ message: 'User not found' });
     res.json(user);
   } catch (error) {
-    res.status(500).json({ message: 'Error fetching user data' });
+    res.status(500).json({ message: 'Error fetching user profile' });
   }
 };
