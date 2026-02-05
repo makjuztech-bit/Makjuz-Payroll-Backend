@@ -3,7 +3,16 @@ const employeeService = require('../services/employeeService');
 // Get all employees
 exports.getAllEmployees = async (req, res) => {
   try {
-    const { companyId, status } = req.query;
+    let { companyId, status } = req.query;
+
+    // Enforce Company Isolation for non-superadmins
+    if (req.user.role !== 'superadmin' && req.user.company) {
+      if (companyId && companyId !== req.user.company.toString()) {
+        return res.status(403).json({ message: 'Access denied to other company data' });
+      }
+      companyId = req.user.company;
+    }
+
     const employees = await employeeService.getAllEmployees(companyId, status);
     res.status(200).json(employees);
   } catch (error) {
@@ -20,6 +29,16 @@ exports.getEmployeeById = async (req, res) => {
     if (!employee) {
       return res.status(404).json({ message: 'Employee not found' });
     }
+
+    // Verify company access
+    if (req.user.role !== 'superadmin' && req.user.company && employee.company) {
+      // Handle populated company object or ID string
+      const employeeCompanyId = employee.company._id ? employee.company._id.toString() : employee.company.toString();
+      if (employeeCompanyId !== req.user.company.toString()) {
+        return res.status(403).json({ message: 'Access denied: Employee belongs to another company' });
+      }
+    }
+
     res.status(200).json(employee);
   } catch (error) {
     console.error('Error fetching employee:', error);
@@ -179,6 +198,15 @@ exports.getEmployeePayrunDetails = async (req, res) => {
 
     if (!payrunDetails) {
       return res.status(404).json({ message: 'Employee not found' });
+    }
+
+    // Security: Company Isolation Check
+    if (req.user.role !== 'superadmin' && req.user.company && payrunDetails.company) {
+      const employeeCompanyId = payrunDetails.company._id ? payrunDetails.company._id.toString() : payrunDetails.company.toString();
+      if (employeeCompanyId !== req.user.company.toString()) {
+        // Silently return 404 to avoid leaking existence of employee in other company
+        return res.status(404).json({ message: 'Employee not found' });
+      }
     }
 
     res.status(200).json(payrunDetails);

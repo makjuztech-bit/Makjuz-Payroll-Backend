@@ -115,13 +115,15 @@ const verifyCompanyAccess = (req, res, next) => {
     const targetCompanyId = req.params.companyId || req.query.companyId || req.body.companyId;
 
     if (!targetCompanyId) {
-        // If route doesn't specify company, skip check (or handle globally)
-        // For strict tenancy, we might want to enforce this even if missing.
+        // If route doesn't specify company, skip explicit check.
+        // The controller (e.g. create/find) should use req.user.company default.
         return next();
     }
 
-    // 3. User must have a company assigned
+    // 3. User must have a company assigned (if route is company-specific)
     if (!req.user.company) {
+        // Allow if no company is assigned (e.g., initial setup or superadmin)
+        // But if they are trying to access a specific company without being assigned one, deny.
         return res.status(403).json({
             error: 'Access denied. You are not assigned to any company.',
             code: 'NO_COMPANY_ASSIGNED'
