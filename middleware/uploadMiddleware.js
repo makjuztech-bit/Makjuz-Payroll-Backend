@@ -14,13 +14,13 @@ const storage = multer.diskStorage({
 
 // Check file type
 const fileFilter = (req, file, cb) => {
-  const allowedFileTypes = ['.xlsx', '.xls', '.csv'];
+  const allowedFileTypes = ['.xlsx', '.xls', '.csv', '.docx'];
   const extname = path.extname(file.originalname).toLowerCase();
-  
+
   if (allowedFileTypes.includes(extname)) {
     return cb(null, true);
   } else {
-    return cb(new Error('Only Excel files (xlsx, xls) and CSV files are allowed!'), false);
+    return cb(new Error('Only Excel, CSV, and Word (.docx) files are allowed!'), false);
   }
 };
 

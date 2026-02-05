@@ -289,54 +289,54 @@ exports.downloadESIReport = async (req, res) => {
     console.error('Error downloading ESI report:', error);
     res.status(500).json({ message: error.message });
   }
-  // Upload Payslip Template (Word)
-  exports.uploadPayslipTemplate = async (req, res) => {
-    try {
-      if (!req.file) {
-        return res.status(400).json({ message: 'No template file uploaded' });
-      }
-
-      const templatesDir = path.join(__dirname, '..', 'templates');
-      if (!fs.existsSync(templatesDir)) {
-        fs.mkdirSync(templatesDir, { recursive: true });
-      }
-
-      const targetPath = path.join(templatesDir, 'payslip_template.docx');
-
-      // Move/Rename file
-      fs.renameSync(req.file.path, targetPath);
-
-      res.status(200).json({ message: 'Payslip template uploaded successfully' });
-    } catch (error) {
-      console.error('Error uploading template:', error);
-      res.status(500).json({ message: 'Error uploading template', details: error.message });
+};
+// Upload Payslip Template (Word)
+exports.uploadPayslipTemplate = async (req, res) => {
+  try {
+    if (!req.file) {
+      return res.status(400).json({ message: 'No template file uploaded' });
     }
-  };
 
-  // Download Word Payslip
-  exports.downloadWordPayslip = async (req, res) => {
-    try {
-      const { companyId, month, year, employeeId } = req.query;
-      if (!companyId || !month || !year || !employeeId) {
-        return res.status(400).json({ message: 'Company ID, Employee ID, month and year are required' });
-      }
-
-      const result = await payrunService.generateWordPayslip(companyId, employeeId, month, year);
-
-      res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.wordprocessingml.document');
-      res.setHeader('Content-Disposition', `attachment; filename=${result.filename}`);
-
-      const fileStream = fs.createReadStream(result.path);
-      fileStream.pipe(res);
-
-      fileStream.on('end', () => {
-        try { fs.unlinkSync(result.path); } catch (e) { console.error('Cleanup error:', e); }
-      });
-
-    } catch (error) {
-      console.error('Error downloading Word payslip:', error);
-      res.status(500).json({ message: error.message });
+    const templatesDir = path.join(__dirname, '..', 'templates');
+    if (!fs.existsSync(templatesDir)) {
+      fs.mkdirSync(templatesDir, { recursive: true });
     }
+
+    const targetPath = path.join(templatesDir, 'payslip_template.docx');
+
+    // Move/Rename file
+    fs.renameSync(req.file.path, targetPath);
+
+    res.status(200).json({ message: 'Payslip template uploaded successfully' });
+  } catch (error) {
+    console.error('Error uploading template:', error);
+    res.status(500).json({ message: 'Error uploading template', details: error.message });
+  }
+};
+
+// Download Word Payslip
+exports.downloadWordPayslip = async (req, res) => {
+  try {
+    const { companyId, month, year, employeeId } = req.query;
+    if (!companyId || !month || !year || !employeeId) {
+      return res.status(400).json({ message: 'Company ID, Employee ID, month and year are required' });
+    }
+
+    const result = await payrunService.generateWordPayslip(companyId, employeeId, month, year);
+
+    res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.wordprocessingml.document');
+    res.setHeader('Content-Disposition', `attachment; filename=${result.filename}`);
+
+    const fileStream = fs.createReadStream(result.path);
+    fileStream.pipe(res);
+
+    fileStream.on('end', () => {
+      try { fs.unlinkSync(result.path); } catch (e) { console.error('Cleanup error:', e); }
+    });
+
+  } catch (error) {
+    console.error('Error downloading Word payslip:', error);
+    res.status(500).json({ message: error.message });
   }
 };
 
