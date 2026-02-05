@@ -1,10 +1,10 @@
 const express = require('express');
 const router = express.Router();
 const employeeController = require('../controllers/employeeController');
-const { authorize } = require('../middleware/rbac');
+const { authorize, verifyCompanyAccess } = require('../middleware/rbac');
 
 // READ routes (Shared access for User, HR, Manager, Admin)
-router.get('/', authorize('user', 'hr', 'manager', 'admin', 'superadmin'), employeeController.getAllEmployees);
+router.get('/', authorize('user', 'hr', 'manager', 'admin', 'superadmin'), verifyCompanyAccess, employeeController.getAllEmployees);
 router.get('/count', authorize('user', 'hr', 'manager', 'admin', 'superadmin'), employeeController.getEmployeeCount);
 router.get('/find-by-id', authorize('user', 'hr', 'manager', 'admin', 'superadmin'), employeeController.findEmployeeById);
 router.get('/:id', authorize('user', 'hr', 'manager', 'admin', 'superadmin'), employeeController.getEmployeeById);

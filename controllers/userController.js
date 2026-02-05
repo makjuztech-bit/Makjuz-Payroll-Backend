@@ -22,7 +22,7 @@ exports.register = async (req, res) => {
   const { jwtSecret, refreshSecret } = getSecrets();
 
   try {
-    const { username, password, email } = req.body;
+    const { username, password, email, companyId } = req.body;
 
     // 1. Basic Validation
     if (!username || !password || !email) {
@@ -62,7 +62,8 @@ exports.register = async (req, res) => {
       username: username.trim(),
       password: hashedPassword,
       email: email.toLowerCase().trim(),
-      role: 'user' // Changed from admin to user for security
+      role: 'user', // Changed from admin to user for security
+      company: companyId // Optional: Link user to company if provided
     });
 
     try {
@@ -74,7 +75,7 @@ exports.register = async (req, res) => {
 
     // 5. Token Generation
     const token = jwt.sign(
-      { id: user._id, username: user.username, role: user.role },
+      { id: user._id, username: user.username, role: user.role, company: user.company },
       jwtSecret,
       { expiresIn: process.env.JWT_EXPIRE || '1h' }
     );
@@ -131,7 +132,7 @@ exports.login = async (req, res) => {
     await user.resetLoginAttempts();
 
     const token = jwt.sign(
-      { id: user._id, username: user.username, role: user.role },
+      { id: user._id, username: user.username, role: user.role, company: user.company },
       jwtSecret,
       { expiresIn: process.env.JWT_EXPIRE || '1h' }
     );

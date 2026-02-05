@@ -53,6 +53,7 @@ const auth = async (req, res, next) => {
       username: decoded.username,
       email: decoded.email,
       role: decoded.role || 'user',
+      company: decoded.company,
       tokenIssued: decoded.iat,
       tokenExpires: decoded.exp
     };

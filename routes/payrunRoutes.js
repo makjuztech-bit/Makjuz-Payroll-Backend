@@ -2,10 +2,10 @@ const express = require('express');
 const router = express.Router();
 const payrunController = require('../controllers/payrunController');
 const { upload } = require('../middleware/uploadMiddleware');
-const { authorize } = require('../middleware/rbac');
+const { authorize, verifyCompanyAccess } = require('../middleware/rbac');
 
 // Public-ish Summary (Shared access for User, HR, Manager, Admin)
-router.get('/summary', authorize('user', 'hr', 'manager', 'admin', 'superadmin'), payrunController.getPayrunSummary);
+router.get('/summary', authorize('user', 'hr', 'manager', 'admin', 'superadmin'), verifyCompanyAccess, payrunController.getPayrunSummary);
 
 // Restricted Operations (Restricted to HR and Admin roles)
 router.use(authorize('hr', 'admin', 'superadmin'));

@@ -101,9 +101,54 @@ const requireMinimumRole = (minimumRole) => {
     };
 };
 
+/**
+ * Verify if user belongs to the requested company
+ * (Assumes companyId is in req.params, req.query, or req.body)
+ */
+const verifyCompanyAccess = (req, res, next) => {
+    // 1. Superadmins bypass all checks
+    if (req.user && req.user.role === 'superadmin') {
+        return next();
+    }
+
+    // 2. Identify target company
+    const targetCompanyId = req.params.companyId || req.query.companyId || req.body.companyId;
+
+    if (!targetCompanyId) {
+        // If route doesn't specify company, skip check (or handle globally)
+        // For strict tenancy, we might want to enforce this even if missing.
+        return next();
+    }
+
+    // 3. User must have a company assigned
+    if (!req.user.company) {
+        return res.status(403).json({
+            error: 'Access denied. You are not assigned to any company.',
+            code: 'NO_COMPANY_ASSIGNED'
+        });
+    }
+
+    // 4. Check Match
+    if (req.user.company.toString() !== targetCompanyId.toString()) {
+        logger.warn({
+            message: 'Cross-company access attempt prevented',
+            userId: req.user.id,
+            userCompany: req.user.company,
+            targetCompany: targetCompanyId
+        });
+        return res.status(403).json({
+            error: 'Access denied. You do not have permission to access data for this company.',
+            code: 'COMPANY_MISMATCH'
+        });
+    }
+
+    next();
+};
+
 module.exports = {
     authorize,
     requireMinimumRole,
+    verifyCompanyAccess,
     ROLE_HIERARCHY,
     ROLE_PERMISSIONS
 };
