@@ -44,7 +44,7 @@ const auth = async (req, res, next) => {
     // Verify token
     const decoded = jwt.verify(token, JWT_SECRET, {
       algorithms: ['HS256', 'HS512'],
-      maxAge: process.env.JWT_EXPIRE || '24h'
+      maxAge: process.env.JWT_EXPIRE || '1h'
     });
 
     // Add user info to request

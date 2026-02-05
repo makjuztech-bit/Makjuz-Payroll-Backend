@@ -62,7 +62,7 @@ exports.register = async (req, res) => {
       username: username.trim(),
       password: hashedPassword,
       email: email.toLowerCase().trim(),
-      role: 'admin' // Fixed: Default to admin so new users can access the dashboard/routes
+      role: 'user' // Changed from admin to user for security
     });
 
     try {
@@ -76,7 +76,7 @@ exports.register = async (req, res) => {
     const token = jwt.sign(
       { id: user._id, username: user.username, role: user.role },
       jwtSecret,
-      { expiresIn: '24h' }
+      { expiresIn: process.env.JWT_EXPIRE || '1h' }
     );
 
     const refreshToken = jwt.sign(
@@ -133,7 +133,7 @@ exports.login = async (req, res) => {
     const token = jwt.sign(
       { id: user._id, username: user.username, role: user.role },
       jwtSecret,
-      { expiresIn: '24h' }
+      { expiresIn: process.env.JWT_EXPIRE || '1h' }
     );
 
     const refreshToken = jwt.sign(

@@ -1,8 +1,9 @@
 const mongoose = require('mongoose');
+require('dotenv').config();
 const Employee = require('./models/Employee');
 const Company = require('./models/Company');
 
-const MONGODB_URI = 'mongodb+srv://madhavan:EgFHpkXVWLxZmube@levivaan.xns2kil.mongodb.net/levivaan?retryWrites=true&w=majority&appName=levivaan';
+const MONGODB_URI = process.env.MONGO_URI;
 
 const sampleEmployees = [
     {

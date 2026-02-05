@@ -18,7 +18,9 @@ exports.getAllEmployees = async (companyId, status) => {
     if (status) {
       query.status = status;
     }
-    return await Employee.find(query).populate('company');
+    return await Employee.find(query)
+      .select('-adhar_number -pan_number -account_number -permanent_address')
+      .populate('company');
   } catch (error) {
     console.error('Error in getAllEmployees:', error);
     throw error;
