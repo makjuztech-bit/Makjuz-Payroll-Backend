@@ -735,7 +735,7 @@ exports.generateWordPayslip = async (companyId, employeeId, month, year) => {
     const payrun = employee.payrun_details.get(key);
     if (!payrun) throw new Error('Payrun data not found for valid employee');
 
-    const imagePath = path.join(__dirname, '..', '..', 'Makjuz-payroll', 'src', 'assets', 'image.png');
+    const imagePath = path.join(__dirname, '..', 'assets', 'logo.png');
     let imageBuffer;
     try {
       imageBuffer = fs.readFileSync(imagePath);
@@ -984,7 +984,7 @@ exports.generateInvoice = async (companyId, month, year) => {
     const sgst = totalTaxable * 0.09;
     const totalAmount = totalTaxable + cgst + sgst;
 
-    const imagePath = path.join(__dirname, '..', '..', 'Makjuz-payroll', 'src', 'assets', 'image.png');
+    const imagePath = path.join(__dirname, '..', 'assets', 'logo.png');
     let imageBuffer;
     try {
       imageBuffer = fs.readFileSync(imagePath);
