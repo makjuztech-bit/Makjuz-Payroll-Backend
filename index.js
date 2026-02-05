@@ -72,6 +72,12 @@ app.use('/api/ai', aiRoutes);
 // Serve static files from the React frontend app
 if (process.env.NODE_ENV === 'production') {
   const frontendBuildPath = path.join(__dirname, 'public');
+  console.log('Serving production frontend from:', frontendBuildPath);
+  if (fs.existsSync(frontendBuildPath)) {
+    console.log('Frontend build directory contents:', fs.readdirSync(frontendBuildPath));
+  } else {
+    console.error('CRITICAL: Frontend build directory not found at:', frontendBuildPath);
+  }
   app.use(express.static(frontendBuildPath));
 
   // Any route that doesn't match an API route or static file should serve the frontend index.html
@@ -80,7 +86,13 @@ if (process.env.NODE_ENV === 'production') {
     if (req.path.startsWith('/api/') || req.path.startsWith('/uploads/') || req.path.startsWith('/templates/')) {
       return next();
     }
-    res.sendFile(path.join(frontendBuildPath, 'index.html'));
+    const indexPath = path.join(frontendBuildPath, 'index.html');
+    if (fs.existsSync(indexPath)) {
+      res.sendFile(indexPath);
+    } else {
+      console.error('index.html not found at:', indexPath);
+      res.status(404).send('Frontend application index.html not found. Please check build logs.');
+    }
   });
 } else {
   // Root route for development
