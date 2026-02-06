@@ -6,6 +6,7 @@ const ROLE_HIERARCHY = {
     hr: 2,
     manager: 3,
     admin: 4,
+    md: 5,
     superadmin: 5
 };
 
@@ -15,6 +16,7 @@ const ROLE_PERMISSIONS = {
     hr: ['read:own', 'update:own', 'read:employees', 'create:employees', 'update:employees'],
     manager: ['read:own', 'update:own', 'read:employees', 'read:team', 'update:team'],
     admin: ['*'], // All permissions
+    md: ['*'], // All permissions
     superadmin: ['*'] // All permissions + system config
 };
 

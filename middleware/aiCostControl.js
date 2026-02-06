@@ -8,6 +8,7 @@ const AI_LIMITS = {
     hr: { daily: 50, monthly: 500 },
     manager: { daily: 50, monthly: 500 },
     admin: { daily: 200, monthly: 2000 },
+    md: { daily: 500, monthly: 5000 },
     superadmin: { daily: -1, monthly: -1 } // Unlimited
 };
 
