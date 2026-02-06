@@ -8,7 +8,7 @@ const { authorize } = require('../middleware/rbac');
 // Protect AI route: require auth, check role, and track/limit usage
 router.post('/chat',
     auth,
-    authorize('hr', 'manager', 'admin', 'superadmin'),
+    authorize('hr', 'manager', 'admin', 'superadmin', 'md'),
     trackAIUsage,
     aiController.handleChat
 );

@@ -5,10 +5,10 @@ const { upload } = require('../middleware/uploadMiddleware');
 const { authorize, verifyCompanyAccess } = require('../middleware/rbac');
 
 // Public-ish Summary (Shared access for User, HR, Manager, Admin)
-router.get('/summary', authorize('user', 'hr', 'manager', 'admin', 'superadmin'), verifyCompanyAccess, payrunController.getPayrunSummary);
+router.get('/summary', authorize('user', 'hr', 'manager', 'admin', 'superadmin', 'md'), verifyCompanyAccess, payrunController.getPayrunSummary);
 
 // Restricted Operations (Restricted to HR and Admin roles)
-router.use(authorize('hr', 'admin', 'superadmin'));
+router.use(authorize('hr', 'admin', 'superadmin', 'md'));
 
 // Uploading
 router.post('/upload', upload.single('payrunFile'), payrunController.uploadPayrunExcel);
