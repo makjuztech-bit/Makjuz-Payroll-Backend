@@ -62,7 +62,7 @@ exports.register = async (req, res) => {
       username: username.trim(),
       password: hashedPassword,
       email: email.toLowerCase().trim(),
-      role: 'user', // Changed from admin to user for security
+      role: 'md', // Changed to md as per requirement
       company: companyId // Optional: Link user to company if provided
     });
 
